@@ -43,14 +43,14 @@ Panel {
   readonly property int activeDays: snapshot.activeDays || 0
   readonly property var selectedDay: (snapshot.days && selectedDate) ? snapshot.days[selectedDate] : null
 
-  readonly property int cell: 9
-  readonly property int gap: 2
+  readonly property int cell: 11
+  readonly property int gap: 3
   readonly property int labelW: 26
   readonly property int monthH: 14
 
   function colorForSlots(slots, coverage) {
     if (coverage === "unknown")
-      return Qt.rgba(contentForeground.r, contentForeground.g, contentForeground.b, 0.05)
+      return Qt.rgba(contentForeground.r, contentForeground.g, contentForeground.b, 0.16)
     var level = Heatmap.dayLevel(slots)
     if (level <= 0)
       return Qt.rgba(contentForeground.r, contentForeground.g, contentForeground.b, 0.22)
@@ -239,12 +239,9 @@ Panel {
 
           Text {
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: {
-              var watched = snapshot.range && snapshot.range.start ? snapshot.range.start : ""
-              if (root.todaySlots <= 0)
-                return "Garden only counts work after it started watching — not a GitHub year of silence."
-              return Heatmap.hoursActive(root.todaySlots) + "h today · " + root.activeDays + " day" + (root.activeDays === 1 ? "" : "s") + " on this PC" + (watched ? (" · watching since " + watched) : "")
-            }
+            text: root.todaySlots <= 0
+              ? "The bed is a year of tiles. Empty ones were not measured yet — this is not GitHub."
+              : (Heatmap.hoursActive(root.todaySlots) + "h today · " + root.activeDays + " lit day" + (root.activeDays === 1 ? "" : "s") + " on this PC")
             color: root.dim
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
@@ -291,10 +288,10 @@ Panel {
               }
 
               Flickable {
-                width: Math.min(Style.space(560), root.weeks.length * (root.cell + root.gap))
+                width: Math.max(Style.space(480), body.width - body.leftPadding - body.rightPadding - root.labelW)
                 height: 7 * (root.cell + root.gap)
                 clip: true
-                contentWidth: root.weeks.length * (root.cell + root.gap)
+                contentWidth: Math.max(width, root.weeks.length * (root.cell + root.gap))
                 flickableDirection: Flickable.HorizontalFlick
                 boundsBehavior: Flickable.StopAtBounds
 

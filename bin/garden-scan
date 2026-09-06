@@ -280,7 +280,7 @@ def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[P
     first_day = None
     if isinstance(first, (int, float)):
         first_day = datetime.fromtimestamp(first).date()
-    start = first_day if first_day and first_day <= today else today
+    start = today - timedelta(days=364)
     buckets = load_ledger_slots(start)
 
     days_out: Dict[str, Any] = {}
@@ -302,8 +302,10 @@ def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[P
                 "coverage": coverage,
             }
         else:
+            before_watch = first_day is not None and cursor < first_day
             days_out[iso] = {
-                "slots": 0, "commits": 0, "files": 0, "agents": 0, "repos": [], "coverage": "observed",
+                "slots": 0, "commits": 0, "files": 0, "agents": 0, "repos": [],
+                "coverage": "unknown" if before_watch else "observed",
             }
         cursor += timedelta(days=1)
 

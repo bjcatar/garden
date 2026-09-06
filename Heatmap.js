@@ -47,7 +47,7 @@ function buildWeeks(startIso, endIso, days) {
   cursor.setDate(cursor.getDate() - cursor.getDay())
   var weeks = []
   var guard = 0
-  while (guard++ < 53) {
+  while (guard++ < 54) {
     var week = []
     for (var i = 0; i < 7; i++) {
       var iso = isoLocal(cursor)
