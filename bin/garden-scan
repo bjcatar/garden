@@ -13,7 +13,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 GIT_TIMEOUT = 12
 MAX_DEPTH = 6
 MAX_COMMITS_PER_DAY = 80
-DEFAULT_ROOTS = ["~/projects", "~/Documents"]
+DEFAULT_ROOTS = ["~/Projects", "~/Documents"]
 SKIP_DIR_NAMES = {
     ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "target", "dist",
     "build", ".cache", ".tox", "__pycache__", ".mypy_cache", ".pytest_cache",

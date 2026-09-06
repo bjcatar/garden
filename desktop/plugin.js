@@ -436,7 +436,7 @@ function GardenPage() {
             : !data || data.total === 0
               ? jsx(EmptyState, {
                   title: 'No local contributions yet',
-                  description: 'Scanning ~/projects and ~/Documents. Clone or commit in those trees and this garden fills in — one square per day, colored by volume.'
+                  description: 'Scanning ~/Projects and ~/Documents. Clone or commit in those trees and this garden fills in — one square per day, colored by volume.'
                 })
               : jsxs('div', {
                   className: 'flex flex-col gap-6',

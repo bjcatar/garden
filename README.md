@@ -10,7 +10,7 @@ The widget lives in the repo and is copied into Omarchy’s plugin dir:
 
 ```bash
 rsync -a --delete --exclude .git --exclude hermes \
-  ~/projects/personal/local-contrib/ ~/.config/omarchy/plugins/bjcatar.garden/
+  ~/Projects/personal/local-contrib/ ~/.config/omarchy/plugins/bjcatar.garden/
 omarchy plugin validate ~/.config/omarchy/plugins/bjcatar.garden
 omarchy plugin enable bjcatar.garden --section right
 omarchy-shell shell rescanPlugins
@@ -30,6 +30,6 @@ Edit the **repo**, then rsync (or edit the copy under `~/.config/omarchy/plugins
 
 ## What it counts
 
-`bin/garden-scan` walks `~/projects` and `~/Documents`, keeps commits matching your git `user.name` / `user.email`, writes `~/.local/state/omarchy/garden/heatmap.json`.
+`bin/garden-scan` walks `~/Projects` and `~/Documents`, keeps commits matching your git `user.name` / `user.email`, writes `~/.local/state/omarchy/garden/heatmap.json`.
 
-`~/projects` is empty until you clone code there; vaults under `~/Documents` already fill squares.
+`~/Projects` is empty until you clone code there; vaults under `~/Documents` already fill squares.

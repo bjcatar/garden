@@ -41,7 +41,7 @@ SNAPSHOT_TTL_SECONDS = 90
 GIT_TIMEOUT = 12
 MAX_DEPTH = 6
 MAX_COMMITS_PER_DAY = 80
-DEFAULT_ROOTS = ["~/projects", "~/Documents"]
+DEFAULT_ROOTS = ["~/Projects", "~/Documents"]
 SKIP_DIR_NAMES = {
     ".git",
     ".hg",
