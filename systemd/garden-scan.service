@@ -1,0 +1,6 @@
+[Unit]
+Description=Garden activity scan (local coding heatmap)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan

@@ -1,35 +1,48 @@
 # Garden
 
-Omarchy bar widget: GitHub-style contribution heatmap of **git commits on this machine**.
+What you actually did **on this PC**, in folders you chose.
 
-Not the Agents token panel. Not github.com. Squares are days you actually committed locally.
+Not GitHub.com. Not the Agents token meter. A square is a half-hour when a tracked file changed or you made a commit in a watched repo. Vault backup crons stay pale. History that only exists in git is labeled as such.
 
-## Install (this machine)
-
-The widget lives in the repo and is copied into Omarchy’s plugin dir:
+## Install
 
 ```bash
-rsync -a --delete --exclude .git --exclude hermes \
-  ~/Projects/personal/local-contrib/ ~/.config/omarchy/plugins/bjcatar.garden/
-omarchy plugin validate ~/.config/omarchy/plugins/bjcatar.garden
-omarchy plugin enable bjcatar.garden --section right
-omarchy-shell shell rescanPlugins
+omarchy plugin add <this-repo-url> --enable --section right
+systemctl --user enable --now garden-scan.timer
 ```
 
-Bar pill: last 7 days as tiny squares. Left-click opens the year grid. Middle-click refreshes. `r` in the panel rescans.
+On this machine the live copy is `~/.config/omarchy/plugins/bjcatar.garden`. After editing the repo:
 
-## Reload after editing
+```bash
+rsync -a --exclude .git --exclude .hermes --exclude extras --exclude __pycache__ \
+  ~/Projects/personal/local-contrib/ ~/.config/omarchy/plugins/bjcatar.garden/
+omarchy-shell shell rescanPlugins
+python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan
+```
 
-Omarchy is not Hermes. Super+K is the Omarchy launcher; Ctrl+K is Hermes.
+## Bar
 
-- Saving a file under `~/.config/omarchy/plugins/bjcatar.garden/` reloads the widget
-- If it doesn’t: `omarchy-shell shell rescanPlugins`
-- Still stuck: `omarchy restart shell`
+A **standard icon slot**: seven 2px ticks for the last week. Left-click opens the year. Middle-click / `r` refreshes.
 
-Edit the **repo**, then rsync (or edit the copy under `~/.config/omarchy/plugins/` directly).
+## Folders
 
-## What it counts
+Default watch: `~/Projects` (not `~/Documents`). Add/remove folders in the panel. `$HOME` is rejected.
 
-`bin/garden-scan` walks `~/Projects` and `~/Documents`, keeps commits matching your git `user.name` / `user.email`, writes `~/.local/state/omarchy/garden/heatmap.json`.
+## Data
 
-`~/Projects` is empty until you clone code there; vaults under `~/Documents` already fill squares.
+| Path | What |
+|---|---|
+| `~/.local/state/omarchy/garden/heatmap.json` | Derived calendar (widget reads this) |
+| `~/.local/state/omarchy/garden/settings.json` | Roots, mutes, source toggles |
+| `~/.local/state/omarchy/garden/ledger.jsonl` | Observed events |
+
+Scanner is a systemd user timer every 15 minutes. The widget does **not** scan on its own (avoids two-monitor storms).
+
+## Uninstall
+
+```bash
+omarchy plugin disable bjcatar.garden
+omarchy plugin remove bjcatar.garden
+systemctl --user disable --now garden-scan.timer
+rm -rf ~/.local/state/omarchy/garden
+```

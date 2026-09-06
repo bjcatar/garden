@@ -23,31 +23,21 @@ function prettyDate(iso) {
 }
 
 function cellFor(days, iso) {
-  if (!days || !days[iso]) return { commits: 0, additions: 0, deletions: 0, repos: [] }
+  if (!days || !days[iso]) return { slots: 0, commits: 0, files: 0, agents: 0, repos: [], coverage: "empty" }
   return days[iso]
 }
 
-function cutsFromCounts(counts) {
-  var nz = []
-  for (var i = 0; i < counts.length; i++) if (counts[i] > 0) nz.push(counts[i])
-  nz.sort(function (a, b) { return a - b })
-  if (!nz.length) return [1, 2, 4]
-  function at(p) {
-    var idx = Math.min(nz.length - 1, Math.max(0, Math.ceil(p * nz.length) - 1))
-    return nz[idx]
-  }
-  var a = Math.max(1, at(0.35))
-  var b = Math.max(a + 1, at(0.65))
-  var c = Math.max(b + 1, at(0.9))
-  return [a, b, c]
+function dayLevel(slots) {
+  var n = slots || 0
+  if (n <= 0) return 0
+  if (n <= 1) return 1
+  if (n <= 3) return 2
+  if (n <= 7) return 3
+  return 4
 }
 
-function levelFor(count, cuts) {
-  if (!count) return 0
-  if (count <= cuts[0]) return 1
-  if (count <= cuts[1]) return 2
-  if (count <= cuts[2]) return 3
-  return 4
+function hoursActive(slots) {
+  return (slots || 0) * 0.5
 }
 
 function buildWeeks(startIso, endIso, days) {
@@ -57,7 +47,7 @@ function buildWeeks(startIso, endIso, days) {
   cursor.setDate(cursor.getDate() - cursor.getDay())
   var weeks = []
   var guard = 0
-  while (guard++ < 60) {
+  while (guard++ < 53) {
     var week = []
     for (var i = 0; i < 7; i++) {
       var iso = isoLocal(cursor)
@@ -66,9 +56,11 @@ function buildWeeks(startIso, endIso, days) {
       week.push({
         date: iso,
         inRange: inRange,
+        slots: cell ? (cell.slots || 0) : 0,
         commits: cell ? (cell.commits || 0) : 0,
-        additions: cell ? (cell.additions || 0) : 0,
-        deletions: cell ? (cell.deletions || 0) : 0
+        files: cell ? (cell.files || 0) : 0,
+        coverage: cell ? (cell.coverage || "empty") : "empty",
+        repos: cell && cell.repos ? cell.repos : []
       })
       cursor.setDate(cursor.getDate() + 1)
     }
@@ -106,13 +98,9 @@ function lastNDays(endIso, n, days) {
     var cell = cellFor(days, iso)
     out.push({
       date: iso,
-      commits: cell.commits || 0
+      slots: cell.slots || 0,
+      coverage: cell.coverage || "empty"
     })
   }
   return out
-}
-
-function entriesFor(snapshot, iso) {
-  if (!snapshot || !snapshot.commitsByDay) return []
-  return snapshot.commitsByDay[iso] || []
 }

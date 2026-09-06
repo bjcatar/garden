@@ -1,71 +1,100 @@
 #!/usr/bin/env python3
-"""Scan local git repos and write a GitHub-style heatmap JSON for the Omarchy widget."""
+"""Observe coding activity in watched folders and write heatmap.json.
+
+Does not start from the bar widget. Run from systemd or the CLI.
+"""
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import subprocess
 import sys
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
-GIT_TIMEOUT = 12
-MAX_DEPTH = 6
-MAX_COMMITS_PER_DAY = 80
-DEFAULT_ROOTS = ["~/Projects", "~/Documents"]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import garden_lib as g
+
+STATE_DIR = Path.home() / ".local/state/omarchy/garden"
+SETTINGS_PATH = STATE_DIR / "settings.json"
+HEATMAP_PATH = STATE_DIR / "heatmap.json"
+STATE_PATH = STATE_DIR / "state.json"
+LEDGER_PATH = STATE_DIR / "ledger.jsonl"
+LOCK_PATH = STATE_DIR / "scan.lock"
+USAGE_DIR = Path.home() / ".local/state/omarchy/agents/usage"
 SKIP_DIR_NAMES = {
     ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "target", "dist",
     "build", ".cache", ".tox", "__pycache__", ".mypy_cache", ".pytest_cache",
     "vendor", ".next", ".turbo", "coverage",
 }
-OUT_PATH = Path.home() / ".local/state/omarchy/garden/heatmap.json"
-SETTINGS_PATH = Path.home() / ".local/state/omarchy/garden/settings.json"
+MAX_DEPTH = 6
+GIT_TIMEOUT = 12
 
 
-def _git(repo: Path, args: List[str], timeout: int = GIT_TIMEOUT) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True, text=True, timeout=timeout, check=False,
-    )
+def _read_json(path: Path, default: Any) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def load_settings() -> Dict[str, Any]:
+    raw = _read_json(SETTINGS_PATH, None)
+    settings = g.normalize_settings(raw if isinstance(raw, dict) else None)
+    if not settings["authorEmails"]:
+        email = _git_config(None, "user.email")
+        if email:
+            settings["authorEmails"] = [email]
+    return settings
+
+
+def save_settings(settings: Dict[str, Any]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    SETTINGS_PATH.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+
+
+def load_state() -> Dict[str, Any]:
+    data = _read_json(STATE_PATH, {})
+    return data if isinstance(data, dict) else {}
+
+
+def save_state(state: Dict[str, Any]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+
+def _git(repo: Optional[Path], args: List[str], timeout: int = GIT_TIMEOUT) -> str:
+    cmd = ["git"] if repo is None else ["git", "-C", str(repo)]
+    try:
+        result = subprocess.run(cmd + args, capture_output=True, text=True, timeout=timeout, check=False)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return ""
     return result.stdout if result.returncode == 0 else ""
 
 
 def _git_config(repo: Optional[Path], key: str) -> str:
-    try:
-        cmd = ["git", "config", "--global", "--get", key] if repo is None else [
-            "git", "-C", str(repo), "config", "--get", key
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=4, check=False)
-        return (result.stdout or "").strip()
-    except Exception:
-        return ""
+    extra = ["config", "--global", "--get", key] if repo is None else ["config", "--get", key]
+    return _git(repo, extra, timeout=4).strip()
 
 
-def _load_settings() -> Dict[str, Any]:
-    settings = {"roots": list(DEFAULT_ROOTS), "author": "mine", "includeMerges": False}
-    try:
-        if SETTINGS_PATH.is_file():
-            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                settings.update(data)
-    except Exception:
-        pass
-    if not isinstance(settings.get("roots"), list) or not settings["roots"]:
-        settings["roots"] = list(DEFAULT_ROOTS)
-    return settings
+def repo_label(repo: Path) -> str:
+    home = str(Path.home())
+    rel = str(repo)
+    if rel.startswith(home + os.sep):
+        return "~" + rel[len(home):]
+    return rel
 
 
-def discover_repos(roots: Iterable[str], max_depth: int = MAX_DEPTH) -> List[Path]:
+def discover_repos(roots: List[str]) -> List[Path]:
     found: List[Path] = []
     seen: Set[str] = set()
     for raw in roots:
-        try:
-            root = Path(raw).expanduser().resolve()
-        except Exception:
+        if not g.validate_root(raw):
             continue
-        if not root.is_dir():
-            continue
+        root = Path(raw).expanduser().resolve()
         for dirpath, dirnames, _files in os.walk(root, followlinks=False):
             rel = Path(dirpath)
             try:
@@ -73,7 +102,7 @@ def discover_repos(roots: Iterable[str], max_depth: int = MAX_DEPTH) -> List[Pat
             except ValueError:
                 dirnames[:] = []
                 continue
-            if depth > max_depth:
+            if depth > MAX_DEPTH:
                 dirnames[:] = []
                 continue
             dirnames[:] = [d for d in dirnames if d not in SKIP_DIR_NAMES]
@@ -88,199 +117,335 @@ def discover_repos(roots: Iterable[str], max_depth: int = MAX_DEPTH) -> List[Pat
     return found
 
 
-def _repo_label(repo: Path) -> str:
-    home = str(Path.home())
-    rel = str(repo)
-    if rel.startswith(home + os.sep):
-        return "~" + rel[len(home):]
-    return rel
+def muted(repo: Path, exclude: List[str]) -> bool:
+    label = repo_label(repo)
+    path = str(repo)
+    for item in exclude:
+        if item in (label, path, repo.name):
+            return True
+    return False
 
 
-def _collect_identities(repos: List[Path]) -> Tuple[Set[str], Set[str]]:
-    emails: Set[str] = set()
-    names: Set[str] = set()
-    for source in (None, *repos):
-        email = _git_config(source, "user.email").lower()
-        name = _git_config(source, "user.name").lower()
-        if email:
-            emails.add(email)
-        if name:
-            names.add(name)
-    return emails, names
-
-
-def _is_mine(an: str, ae: str, emails: Set[str], names: Set[str]) -> bool:
-    ae_l = ae.strip().lower()
-    an_l = an.strip().lower()
-    return (bool(ae_l) and ae_l in emails) or (bool(an_l) and an_l in names)
-
-
-def _parse_numstat_block(text: str) -> List[Dict[str, Any]]:
-    commits: List[Dict[str, Any]] = []
-    current: Optional[Dict[str, Any]] = None
-    for line in text.splitlines():
-        if line.startswith("COMMIT\t"):
-            if current is not None:
-                commits.append(current)
-            parts = line.split("\t", 5)
-            if len(parts) < 6:
-                current = None
-                continue
-            _m, full_hash, day, author, email, subject = parts
-            current = {
-                "hash": full_hash[:12],
-                "fullHash": full_hash,
-                "date": day,
-                "author": author,
-                "email": email,
-                "subject": subject.strip() or "(no subject)",
-                "additions": 0,
-                "deletions": 0,
-            }
-            continue
-        if current is None or not line:
-            continue
-        bits = line.split("\t", 2)
-        if len(bits) < 2:
-            continue
-        add_s, del_s = bits[0], bits[1]
-        if add_s != "-":
-            try:
-                current["additions"] += int(add_s)
-            except ValueError:
-                pass
-        if del_s != "-":
-            try:
-                current["deletions"] += int(del_s)
-            except ValueError:
-                pass
-    if current is not None:
-        commits.append(current)
-    return commits
-
-
-def _scan_repo(repo: Path, since: str, include_merges: bool) -> List[Dict[str, Any]]:
-    args = [
-        "log", "--all", "--since", since,
-        "--pretty=format:COMMIT\t%H\t%ad\t%an\t%ae\t%s",
-        "--date=short", "--numstat",
-    ]
-    if not include_merges:
-        args.append("--no-merges")
-    try:
-        text = _git(repo, args)
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+def git_commit_events(repo: Path, settings: Dict[str, Any], since: str) -> List[Dict[str, Any]]:
+    emails = settings.get("authorEmails") or []
+    if not emails or not settings.get("sources", {}).get("git", True):
         return []
-    if not text.strip():
-        return []
-    commits = _parse_numstat_block(text)
-    label = _repo_label(repo)
-    for commit in commits:
-        commit["repo"] = label
-        commit["repoPath"] = str(repo)
-    return commits
-
-
-def build_snapshot() -> Dict[str, Any]:
-    settings = _load_settings()
-    repos = discover_repos(settings.get("roots") or DEFAULT_ROOTS)
-    since = (date.today() - timedelta(days=366 * 4)).isoformat()
-    emails, names = _collect_identities(repos)
-    author_mode = settings.get("author", "mine")
-    include_merges = bool(settings.get("includeMerges"))
-
-    all_commits: List[Dict[str, Any]] = []
-    for repo in repos:
-        all_commits.extend(_scan_repo(repo, since, include_merges))
-
-    if author_mode == "mine" and (emails or names):
-        all_commits = [c for c in all_commits if _is_mine(c["author"], c["email"], emails, names)]
-        for commit in all_commits:
-            ae = (commit.get("email") or "").strip().lower()
-            if ae:
-                emails.add(ae)
-
-    days: Dict[str, Dict[str, Any]] = {}
-    commits_by_day: Dict[str, List[Dict[str, Any]]] = {}
-    repo_counts: Dict[str, int] = {}
-    years: Set[int] = set()
+    pattern = settings.get("ignoreSubject") or g.DEFAULT_IGNORE_SUBJECT
+    events: List[Dict[str, Any]] = []
     seen: Set[str] = set()
-
-    for commit in all_commits:
-        key = f"{commit['fullHash']}:{commit.get('repoPath', '')}"
-        if key in seen:
-            continue
-        seen.add(key)
-        day = commit["date"]
-        if len(day) < 10:
-            continue
-        try:
-            years.add(int(day[:4]))
-        except ValueError:
-            continue
-        bucket = days.setdefault(day, {"commits": 0, "additions": 0, "deletions": 0, "repos": []})
-        bucket["commits"] += 1
-        bucket["additions"] += int(commit.get("additions") or 0)
-        bucket["deletions"] += int(commit.get("deletions") or 0)
-        repo_label = commit.get("repo") or ""
-        if repo_label and repo_label not in bucket["repos"]:
-            bucket["repos"].append(repo_label)
-        repo_counts[repo_label] = repo_counts.get(repo_label, 0) + 1
-        day_list = commits_by_day.setdefault(day, [])
-        if len(day_list) < MAX_COMMITS_PER_DAY:
-            day_list.append({
-                "hash": commit["hash"],
-                "subject": commit["subject"],
-                "repo": repo_label,
-                "additions": commit.get("additions") or 0,
-                "deletions": commit.get("deletions") or 0,
-                "author": commit["author"],
+    for email in emails:
+        text = _git(repo, [
+            "log", "--branches", "--not", "--remotes",
+            "--since", since,
+            "--author", email,
+            "--pretty=format:%H\t%ad\t%s",
+            "--date=format-local:%Y-%m-%d %H:%M:%S",
+        ])
+        for line in text.splitlines():
+            parts = line.split("\t", 2)
+            if len(parts) < 3:
+                continue
+            full_hash, stamp, subject = parts
+            if full_hash in seen:
+                continue
+            seen.add(full_hash)
+            if g.ignore_subject(subject, pattern):
+                continue
+            try:
+                local = datetime.strptime(stamp.strip(), "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                continue
+            day = local.strftime("%Y-%m-%d")
+            slot = g.event_slot(day, local.hour, local.minute)
+            events.append({
+                "type": "git",
+                "day": day,
+                "slot": slot[1],
+                "hash": full_hash[:12],
+                "subject": subject,
+                "repo": repo_label(repo),
             })
+    return events
 
+
+def file_events(repo: Path, since_ts: float) -> List[Dict[str, Any]]:
+    listing = _git(repo, ["ls-files", "-z"], timeout=20)
+    if not listing:
+        return []
+    events: List[Dict[str, Any]] = []
+    for rel in listing.split("\0"):
+        if not rel:
+            continue
+        path = repo / rel
+        try:
+            mtime = path.lstat().st_mtime
+        except OSError:
+            continue
+        if mtime < since_ts:
+            continue
+        day, index = g.timestamp_slot(mtime)
+        events.append({
+            "type": "file",
+            "day": day,
+            "slot": index,
+            "repo": repo_label(repo),
+            "path": rel,
+        })
+    return events
+
+
+def agent_events(state: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    prev = state.get("agentCounts") or {}
+    if not isinstance(prev, dict):
+        prev = {}
+    now_counts: Dict[str, int] = {}
+    events: List[Dict[str, Any]] = []
+    today = date.today().isoformat()
+    if not USAGE_DIR.is_dir():
+        return events, now_counts
+    for path in sorted(USAGE_DIR.glob("*.json")):
+        data = _read_json(path, {})
+        if not isinstance(data, dict):
+            continue
+        agent_id = str(data.get("id") or path.stem)
+        today_count = int(data.get("todayPrompts") or data.get("todaySessions") or 0)
+        for row in data.get("recentDays") or []:
+            if not isinstance(row, dict):
+                continue
+            if row.get("date") == today:
+                today_count = int(row.get("messageCount") or today_count or 0)
+        now_counts[agent_id] = today_count
+        before = int(prev.get(agent_id) or 0)
+        if today_count > before:
+            ts = time.time()
+            day, index = g.timestamp_slot(ts)
+            events.append({
+                "type": "agent",
+                "day": day,
+                "slot": index,
+                "agent": agent_id,
+            })
+    return events, now_counts
+
+
+def append_ledger(events: List[Dict[str, Any]]) -> None:
+    if not events:
+        return
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with LEDGER_PATH.open("a", encoding="utf-8") as fh:
+        for event in events:
+            fh.write(json.dumps(event, separators=(",", ":")) + "\n")
+
+
+def load_ledger_slots(start: date) -> Dict[str, Dict[str, Any]]:
+    days: Dict[str, Dict[str, Any]] = {}
+    if not LEDGER_PATH.is_file():
+        return days
+    start_iso = start.isoformat()
+    try:
+        lines = LEDGER_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return days
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        day = event.get("day")
+        if not day or day < start_iso:
+            continue
+        bucket = days.setdefault(day, {"slots": set(), "commits": 0, "files": 0, "agents": 0, "repos": set(), "git_slots": set(), "obs_slots": set()})
+        slot = event.get("slot")
+        if isinstance(slot, int):
+            bucket["slots"].add(slot)
+            kind = event.get("type")
+            if kind == "git":
+                bucket["git_slots"].add(slot)
+                bucket["commits"] += 1
+            elif kind == "file":
+                bucket["obs_slots"].add(slot)
+                bucket["files"] += 1
+            elif kind == "agent":
+                bucket["obs_slots"].add(slot)
+                bucket["agents"] += 1
+        repo = event.get("repo")
+        if repo:
+            bucket["repos"].add(repo)
+    return days
+
+
+def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[Path]) -> Dict[str, Any]:
     today = date.today()
-    years.add(today.year)
-    start = today - timedelta(days=365)
-    days_out = {}
-    total = 0
+    start = today - timedelta(days=364)
+    buckets = load_ledger_slots(start)
+    first = state.get("firstSampleAt")
+    first_day = None
+    if isinstance(first, (int, float)):
+        first_day = datetime.fromtimestamp(first).strftime("%Y-%m-%d")
+
+    days_out: Dict[str, Any] = {}
     cursor = start
     while cursor <= today:
         iso = cursor.isoformat()
-        cell = days.get(iso)
-        if cell:
-            days_out[iso] = cell
-            total += cell["commits"]
+        bucket = buckets.get(iso)
+        if bucket:
+            slots = bucket["slots"]
+            obs = bucket["obs_slots"]
+            git_only = bool(bucket["git_slots"]) and not obs
+            coverage = "observed"
+            if git_only:
+                coverage = "git-history-only"
+            days_out[iso] = {
+                "slots": len(slots),
+                "commits": bucket["commits"],
+                "files": bucket["files"],
+                "agents": bucket["agents"],
+                "repos": sorted(bucket["repos"]),
+                "coverage": coverage,
+            }
+        elif first_day and iso < first_day:
+            days_out[iso] = {
+                "slots": 0, "commits": 0, "files": 0, "agents": 0, "repos": [], "coverage": "unknown",
+            }
         cursor += timedelta(days=1)
 
+    today_iso = today.isoformat()
+    today_row = days_out.get(today_iso) or {"slots": 0, "commits": 0, "files": 0, "agents": 0, "repos": [], "coverage": "observed"}
+    total_slots = sum(int(v.get("slots") or 0) for v in days_out.values())
+    active_days = sum(1 for v in days_out.values() if int(v.get("slots") or 0) > 0)
     return {
         "generatedAt": datetime.now().isoformat(timespec="seconds"),
-        "authorMode": author_mode,
-        "authors": sorted(emails),
-        "roots": settings.get("roots", DEFAULT_ROOTS),
-        "repos": [
-            {"path": str(p), "name": p.name, "commits": repo_counts.get(_repo_label(p), 0)}
-            for p in repos
-        ],
-        "years": sorted(years, reverse=True),
-        "range": {"start": start.isoformat(), "end": today.isoformat()},
+        "range": {"start": start.isoformat(), "end": today_iso},
+        "today": {"date": today_iso, **today_row},
         "days": days_out,
-        "commitsByDay": {k: v for k, v in commits_by_day.items() if k >= start.isoformat()},
-        "total": total,
-        "today": {"date": today.isoformat(), "commits": (days.get(today.isoformat()) or {}).get("commits", 0)},
+        "totalSlots": total_slots,
+        "activeDays": active_days,
+        "roots": settings.get("roots") or [],
+        "repos": [{"path": str(p), "name": p.name, "label": repo_label(p), "muted": muted(p, settings.get("excludeRepos") or [])} for p in repos],
+        "sources": settings.get("sources"),
+        "slotMinutes": settings.get("slotMinutes") or 30,
     }
 
 
-def main() -> int:
-    snap = build_snapshot()
-    if "--stdout" in sys.argv:
-        json.dump(snap, sys.stdout)
+def scan() -> Dict[str, Any]:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    settings = load_settings()
+    if not SETTINGS_PATH.is_file():
+        save_settings(settings)
+    state = load_state()
+    now = time.time()
+    last = float(state.get("lastSampleAt") or now)
+    first = state.get("firstSampleAt")
+    if not first:
+        state["firstSampleAt"] = now
+        first = now
+
+    repos = discover_repos(settings.get("roots") or [])
+    exclude = settings.get("excludeRepos") or []
+    events: List[Dict[str, Any]] = []
+    since = (date.today() - timedelta(days=364)).isoformat()
+
+    for repo in repos:
+        if muted(repo, exclude):
+            continue
+        if settings.get("sources", {}).get("git", True):
+            events.extend(git_commit_events(repo, settings, since))
+        if settings.get("sources", {}).get("files", True):
+            events.extend(file_events(repo, last))
+
+    agent_counts = state.get("agentCounts") or {}
+    if settings.get("sources", {}).get("agents"):
+        extra, agent_counts = agent_events(state)
+        events.extend(extra)
+    else:
+        agent_counts = {}
+
+    # Git log is historical; only append git events we have not stored.
+    seen_git = state.get("seenGit") or []
+    seen_set = set(seen_git)
+    new_events: List[Dict[str, Any]] = []
+    for event in events:
+        if event.get("type") == "git":
+            key = event.get("hash")
+            if key in seen_set:
+                continue
+            seen_set.add(key)
+        new_events.append(event)
+
+    append_ledger(new_events)
+    state["lastSampleAt"] = now
+    state["seenGit"] = list(seen_set)[-4000:]
+    state["agentCounts"] = agent_counts
+    save_state(state)
+    snap = build_heatmap(settings, state, repos)
+    HEATMAP_PATH.write_text(json.dumps(snap) + "\n", encoding="utf-8")
+    return snap
+
+
+def with_lock(fn):
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with LOCK_PATH.open("a+") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        return fn()
+
+
+def cmd_add_root(raw: str) -> int:
+    settings = load_settings()
+    if not g.validate_root(raw):
+        print("invalid-root", raw)
+        return 1
+    path = str(Path(raw).expanduser().resolve())
+    roots = settings.get("roots") or []
+    if path not in roots and raw not in roots:
+        roots.append(path)
+    settings["roots"] = roots
+    save_settings(settings)
+    print("ok")
+    return 0
+
+
+def cmd_remove_root(raw: str) -> int:
+    settings = load_settings()
+    target = str(Path(raw).expanduser())
+    resolved = str(Path(raw).expanduser().resolve()) if Path(raw).expanduser().exists() else target
+    settings["roots"] = [r for r in (settings.get("roots") or []) if r not in (raw, target, resolved)]
+    save_settings(settings)
+    print("ok")
+    return 0
+
+
+def cmd_mute(raw: str, mute: bool) -> int:
+    settings = load_settings()
+    exclude = list(settings.get("excludeRepos") or [])
+    if mute and raw not in exclude:
+        exclude.append(raw)
+    if not mute:
+        exclude = [x for x in exclude if x != raw]
+    settings["excludeRepos"] = exclude
+    save_settings(settings)
+    print("ok")
+    return 0
+
+
+def main(argv: List[str]) -> int:
+    if "--add-root" in argv:
+        i = argv.index("--add-root")
+        return cmd_add_root(argv[i + 1] if i + 1 < len(argv) else "")
+    if "--remove-root" in argv:
+        i = argv.index("--remove-root")
+        return cmd_remove_root(argv[i + 1] if i + 1 < len(argv) else "")
+    if "--mute" in argv:
+        i = argv.index("--mute")
+        return cmd_mute(argv[i + 1] if i + 1 < len(argv) else "", True)
+    if "--unmute" in argv:
+        i = argv.index("--unmute")
+        return cmd_mute(argv[i + 1] if i + 1 < len(argv) else "", False)
+    snap = with_lock(scan)
+    if "--stdout" in argv:
+        json.dump({"today": snap.get("today"), "activeDays": snap.get("activeDays"), "totalSlots": snap.get("totalSlots")}, sys.stdout)
         sys.stdout.write("\n")
-        return 0
-    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = OUT_PATH.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(snap, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(OUT_PATH)
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))
