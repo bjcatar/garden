@@ -1,61 +1,35 @@
-# Local Contributions
+# Garden
 
-GitHub-style contribution heatmap of **git commits on this machine** — Hermes desktop plugin + Python scanner.
+Omarchy bar widget: GitHub-style contribution heatmap of **git commits on this machine**.
 
-Not GitHub.com. Not the Omarchy agents token panel. Squares are days you actually committed locally.
+Not the Agents token panel. Not github.com. Squares are days you actually committed locally.
 
-## Layout
+## Install (this machine)
 
+The widget lives in the repo and is copied into Omarchy’s plugin dir:
+
+```bash
+rsync -a --delete --exclude .git --exclude hermes \
+  ~/projects/personal/local-contrib/ ~/.config/omarchy/plugins/bjcatar.garden/
+omarchy plugin validate ~/.config/omarchy/plugins/bjcatar.garden
+omarchy plugin enable bjcatar.garden --section right
+omarchy-shell shell rescanPlugins
 ```
-plugin.yaml                 Hermes agent plugin manifest
-__init__.py                 no tools — backend is dashboard API only
-dashboard/plugin_api.py     scans git, serves /api/plugins/local-contrib
-desktop/plugin.js           Garden page, sidebar, status chip
-```
 
-Hermes loads from:
+Bar pill: last 7 days as tiny squares. Left-click opens the year grid. Middle-click refreshes. `r` in the panel rescans.
 
-| Live path | Points at |
-|---|---|
-| `~/.hermes/plugins/local-contrib` | this repo (Python) |
-| `~/.hermes/desktop-plugins/local-contrib` | `desktop/` (UI) |
+## Reload after editing
 
-Those are symlinks. Edit here; Hermes picks it up.
+Omarchy is not Hermes. Super+K is the Omarchy launcher; Ctrl+K is Hermes.
 
-## Reload / see it
+- Saving a file under `~/.config/omarchy/plugins/bjcatar.garden/` reloads the widget
+- If it doesn’t: `omarchy-shell shell rescanPlugins`
+- Still stuck: `omarchy restart shell`
 
-**Desktop UI** (heatmap, sidebar **Garden**, status chip)
-
-1. Command palette (`Ctrl+K` / `⌘K`) → **Reload desktop plugins**
-2. Saving `desktop/plugin.js` also hot-reloads within a few seconds
-3. Sidebar **Garden**, or palette **Open local contributions**
-
-If Garden is missing: Settings → Plugins → enable **Local Contributions**.
-
-**Git scanner** (the numbers behind the squares)
-
-Python routes mount when the gateway starts. After the first install, or after changing `dashboard/plugin_api.py`:
-
-- Quit and reopen Hermes, **or**
-- Start a new Hermes session so `serve` comes back up
-
-`hermes plugins enable local-contrib` is already done on this machine.
+Edit the **repo**, then rsync (or edit the copy under `~/.config/omarchy/plugins/` directly).
 
 ## What it counts
 
-- Repos under `~/projects` and `~/Documents` (override in `~/.hermes/state/local-contrib.json`)
-- Commits matching your git `user.name` / `user.email` (so personal + work mail both count if the name matches)
-- No merges, last ~4 years scanned, rolling last-year grid by default
+`bin/garden-scan` walks `~/projects` and `~/Documents`, keeps commits matching your git `user.name` / `user.email`, writes `~/.local/state/omarchy/garden/heatmap.json`.
 
-## Develop
-
-```bash
-# UI: edit, save, palette → Reload desktop plugins
-$EDITOR desktop/plugin.js
-
-# Scanner: edit, then restart Hermes
-$EDITOR dashboard/plugin_api.py
-
-# Smoke the scanner without the app
-python3 -c 'import sys; sys.path.insert(0,"dashboard"); import plugin_api as p; s=p.build_snapshot(force=True); print(s["total"], s["today"])'
-```
+`~/projects` is empty until you clone code there; vaults under `~/Documents` already fill squares.

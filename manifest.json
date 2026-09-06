@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "bjcatar.garden",
+  "name": "Garden",
+  "version": "1.0.0",
+  "author": "bjcatar",
+  "license": "MIT",
+  "description": "GitHub-style contribution heatmap of git commits on this machine.",
+  "kinds": ["bar-widget"],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Garden",
+    "description": "Local git contribution calendar — last-year heatmap in a bar panel, last 7 days on the pill.",
+    "category": "Info",
+    "aliases": ["garden", "contributions", "github", "heatmap", "git"],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
