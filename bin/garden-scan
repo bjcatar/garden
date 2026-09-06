@@ -543,7 +543,73 @@ def cmd_mute(raw: str, mute: bool) -> int:
     return 0
 
 
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+UNIT_FILES = ("garden-scan.service", "garden-scan.timer")
+
+
+def _unit_src() -> Path:
+    return PLUGIN_ROOT / "systemd"
+
+
+def _default_user_unit_dir() -> Path:
+    return Path.home() / ".config/systemd/user"
+
+
+def _systemctl_user(*args: str) -> None:
+    subprocess.run(["systemctl", "--user", *args], check=False, capture_output=True, text=True, timeout=20)
+
+
+def install_timer(dest: Optional[Path] = None, run_systemctl: bool = True) -> int:
+    src = _unit_src()
+    dest_dir = Path(dest) if dest is not None else _default_user_unit_dir()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for name in UNIT_FILES:
+        body = src / name
+        if not body.is_file():
+            print("missing-unit", body)
+            return 1
+        (dest_dir / name).write_text(body.read_text(encoding="utf-8"), encoding="utf-8")
+    if run_systemctl:
+        _systemctl_user("daemon-reload")
+        _systemctl_user("enable", "--now", "garden-scan.timer")
+    print("ok", str(dest_dir))
+    return 0
+
+
+def uninstall_timer(dest: Optional[Path] = None, run_systemctl: bool = True) -> int:
+    dest_dir = Path(dest) if dest is not None else _default_user_unit_dir()
+    if run_systemctl:
+        _systemctl_user("disable", "--now", "garden-scan.timer")
+    for name in UNIT_FILES:
+        path = dest_dir / name
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    if run_systemctl:
+        _systemctl_user("daemon-reload")
+    print("ok")
+    return 0
+
+
+def _flag_value(argv: List[str], flag: str) -> Optional[str]:
+    if flag not in argv:
+        return None
+    i = argv.index(flag)
+    if i + 1 < len(argv) and not argv[i + 1].startswith("--"):
+        return argv[i + 1]
+    return ""
+
+
 def main(argv: List[str]) -> int:
+    prefix_raw = _flag_value(argv, "--prefix")
+    prefix = Path(prefix_raw) if prefix_raw else None
+    use_systemd = prefix is None
+
+    if "--install-timer" in argv:
+        return install_timer(prefix, run_systemctl=use_systemd)
+    if "--uninstall-timer" in argv:
+        return uninstall_timer(prefix, run_systemctl=use_systemd)
     if "--add-root" in argv:
         i = argv.index("--add-root")
         return cmd_add_root(argv[i + 1] if i + 1 < len(argv) else "")

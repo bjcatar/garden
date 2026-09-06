@@ -2,9 +2,7 @@
 
 A private year of **coding on this Omarchy machine**.
 
-Not GitHub.com. Not the Agents token meter. A square is a half-hour when something actually changed in a folder you chose — a file save in a watched git repo, or a git commit **you** authored. Empty tiles are the bed, not a score. Days before Garden started watching are not a fake empty GitHub year of “you did nothing.”
-
-This is **0.2.0**. Timer install (`--install-timer`) lands in a later wave.
+Not GitHub.com. Not the Agents token meter. A square is a half-hour when something actually changed in a folder you chose — a file save, or a git commit **you** authored (including ones you already pushed). Empty tiles are the bed, not a score.
 
 ## Install
 
@@ -15,25 +13,24 @@ rsync -a --delete --exclude .git --exclude .hermes --exclude extras --exclude te
   ./ ~/.config/omarchy/plugins/bjcatar.garden/
 omarchy plugin validate ~/.config/omarchy/plugins/bjcatar.garden
 omarchy plugin enable bjcatar.garden --section right --after omarchy.agents
-mkdir -p ~/.config/systemd/user
-cp ~/.config/omarchy/plugins/bjcatar.garden/systemd/garden-scan.service \
-   ~/.config/omarchy/plugins/bjcatar.garden/systemd/garden-scan.timer \
-   ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now garden-scan.timer
+python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --install-timer
 python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan
 omarchy-shell shell rescanPlugins
 ```
 
 Then click the sprout on the right of the bar (after Agents). The year should open on **today**. Flick left for earlier months. Middle-click the sprout (or `r` in the panel) to scan now.
 
-Later, when `https://github.com/bjcatar/garden` is public:
+When `https://github.com/bjcatar/garden` is public:
 
 ```bash
 omarchy plugin add https://github.com/bjcatar/garden.git --enable --section right --after omarchy.agents
+python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --install-timer
+python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan
 ```
 
-Then copy the systemd units as above (a `--install-timer` flag is not in this version yet).
+`--install-timer` copies the user systemd units and enables them. The panel also runs **one** scan if heatmap data is missing (no per-monitor timer storm).
+
+The timer assumes the plugin lives at `~/.config/omarchy/plugins/bjcatar.garden`.
 
 ## Bar
 
@@ -61,17 +58,23 @@ Agent token totals are **not** squares. The panel may show a one-line “most us
 | `~/.local/state/omarchy/garden/heatmap.json` | Derived calendar (widget reads this) |
 | `~/.local/state/omarchy/garden/settings.json` | Roots, mutes, emails |
 | `~/.local/state/omarchy/garden/ledger.jsonl` | Observed events |
-| `~/.config/systemd/user/garden-scan.{service,timer}` | Optional 15-minute scan |
+| `~/.config/systemd/user/garden-scan.{service,timer}` | 15-minute scan (from `--install-timer`) |
 
 ## Uninstall
 
 ```bash
+python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --uninstall-timer
 omarchy plugin disable bjcatar.garden
 omarchy plugin remove bjcatar.garden
+rm -rf ~/.local/state/omarchy/garden
+```
+
+If the plugin directory is already gone:
+
+```bash
 systemctl --user disable --now garden-scan.timer
 rm -f ~/.config/systemd/user/garden-scan.service ~/.config/systemd/user/garden-scan.timer
 systemctl --user daemon-reload
-rm -rf ~/.local/state/omarchy/garden
 ```
 
 ## License

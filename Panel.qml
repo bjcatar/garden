@@ -29,6 +29,7 @@ Panel {
   property string selectedDate: ""
   property string rootDraft: ""
   property string scanHint: ""
+  property bool firstScanDone: false
 
   onOpenedChanged: if (opened) Qt.callLater(function() { if (yearFlick) yearFlick.scrollToToday() })
 
@@ -81,6 +82,12 @@ Panel {
 
   function refresh() {
     if (!scanProc.running) scanProc.running = true
+  }
+
+  function maybeFirstScan(empty) {
+    if (root.firstScanDone) return
+    root.firstScanDone = true
+    if (empty) root.refresh()
   }
 
   function addRoot() {
@@ -146,8 +153,15 @@ Panel {
     onLoaded: {
       try { root.applySnapshot(JSON.parse(String(text() || "{}"))) }
       catch (e) { console.warn("garden", "bad heatmap.json", e) }
+      var days = root.snapshot.days
+      var empty = !days || Object.keys(days).length === 0
+      root.maybeFirstScan(empty)
     }
   }
+
+  Component.onCompleted: Qt.callLater(function() {
+    if (!root.firstScanDone) root.maybeFirstScan(true)
+  })
 
   FileView {
     id: settingsFile
