@@ -129,6 +129,7 @@ Panel {
   }
 
   function open() {
+    pinToday = true
     root.scanIfStale()
     if (dataFile) dataFile.reload()
     if (settingsFile) settingsFile.reload()
@@ -284,11 +285,14 @@ Panel {
 
             Text {
               width: parent.width - refreshBtn.implicitWidth - parent.spacing
-              text: scanProc.running
-                ? "Scanning this machine…"
-                : (root.todaySlots <= 0
-                  ? "This Omarchy box is waiting for you"
-                  : ("You built " + Heatmap.hoursActive(root.todaySlots) + " hours here today"))
+              text: {
+                if (scanProc.running) return "Scanning this machine…"
+                var h = Heatmap.hoursActive(root.todaySlots)
+                if (h <= 0) return "This Omarchy box is waiting for you"
+                if (h === 0.5) return "You built a half hour here today"
+                if (h === 1) return "You built 1 hour here today"
+                return "You built " + h + " hours here today"
+              }
               color: root.contentForeground
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.body
@@ -315,7 +319,7 @@ Panel {
 
           Text {
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: "Hours are half-hours you showed up — six commits in one window is still 0.5h, not a busy GitHub day."
+            text: "A half-hour counts when a file changed here. Commits without a save do not add hours."
             color: root.dim
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption

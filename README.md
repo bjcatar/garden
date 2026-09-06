@@ -2,7 +2,7 @@
 
 A private year of **coding on this Omarchy machine**.
 
-Not GitHub.com. Not the Agents token meter. A square is a **half-hour you showed up** in a folder you chose — a file save, or a git commit **you** authored (including ones you already pushed). Six commits in the same window still light **one** square (0.5h). Empty tiles are the bed, not a score.
+Not GitHub.com. Not the Agents token meter. A square is a **half-hour with a file change** in a folder you chose, or a git commit **you** authored (pale tile if git-only). Six commits without a save still add **0h** to the headline. Empty tiles are the bed, not a score.
 
 ## Install
 
