@@ -53,7 +53,7 @@ Panel {
       return Qt.rgba(contentForeground.r, contentForeground.g, contentForeground.b, 0.05)
     var level = Heatmap.dayLevel(slots)
     if (level <= 0)
-      return Qt.rgba(contentForeground.r, contentForeground.g, contentForeground.b, 0.12)
+      return Qt.rgba(contentForeground.r, contentForeground.g, contentForeground.b, 0.22)
     var mix = coverage === "git-history-only" ? [0, 0.18, 0.28, 0.4, 0.55][level] : [0, 0.28, 0.48, 0.72, 1][level]
     return Qt.rgba(accent.r, accent.g, accent.b, mix)
   }
@@ -227,8 +227,8 @@ Panel {
           Text {
             width: parent.width - parent.leftPadding - parent.rightPadding
             text: root.totalSlots <= 0
-              ? "Nothing observed on this PC yet"
-              : (Heatmap.hoursActive(root.totalSlots) + " active hours on this PC · last year")
+              ? "This Omarchy box is waiting for you"
+              : ("You built " + Heatmap.hoursActive(root.totalSlots) + " hours on this machine")
             color: root.contentForeground
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.body
@@ -238,7 +238,9 @@ Panel {
 
           Text {
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: root.activeDays + " active days · squares are half-hours you or an agent touched a watched folder — not GitHub"
+            text: root.activeDays <= 0
+              ? "Not GitHub. These squares are half-hours you actually coded here, in folders you chose."
+              : (root.activeDays + " days you showed up · half-hours in your watched folders — this PC, not the cloud")
             color: root.dim
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
@@ -445,7 +447,7 @@ Panel {
 
           Text {
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: "r refreshes · middle-click the bar mark too. GitHub this is not: only folders above, on this machine."
+            text: "This is your Omarchy machine’s year. r refreshes. Middle-click the sprout in the bar."
             color: root.dim
             wrapMode: Text.WordWrap
             font.pixelSize: 10

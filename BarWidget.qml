@@ -10,6 +10,13 @@ BarWidget {
   readonly property var last7: panelLoader.item ? panelLoader.item.last7 : []
   readonly property int dataRev: panelLoader.item ? panelLoader.item.dataRev : 0
   readonly property int todaySlots: panelLoader.item ? panelLoader.item.todaySlots : 0
+  readonly property string hoursLabel: {
+    var h = root.todaySlots * 0.5
+    if (h <= 0) return "This Omarchy box is waiting"
+    if (h === 0.5) return "A half hour on this machine today"
+    if (h === 1) return "1 hour built on this machine today"
+    return h + " hours built on this machine today"
+  }
 
   function injectPanel() {
     var target = panelLoader.item
@@ -33,12 +40,6 @@ BarWidget {
   function close() { if (panelLoader.item && panelLoader.item.close) panelLoader.item.close() }
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
   function closeForPopoutSwitch() { if (panelLoader.item) panelLoader.item.closeForPopoutSwitch() }
-
-  function cellColor(slots, coverage) {
-    if (panelLoader.item && panelLoader.item.colorForSlots)
-      return panelLoader.item.colorForSlots(slots, coverage)
-    return Util.alpha(bar ? bar.foreground : Color.foreground, 0.14)
-  }
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -66,50 +67,18 @@ BarWidget {
     function toggle(): void { root.togglePanel() }
   }
 
+  // Same slot as Agents/Bluetooth: one Nerd Font mark, always readable.
   BarIconButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    slotSize: Style.bar.iconSlot
-    tooltipText: root.todaySlots <= 0
-      ? "No activity on this PC today"
-      : (HeatmapHours + " on this PC today")
-    iconComponent: weekMark
+    text: "󰹢"
+    tooltipText: root.hoursLabel
+    active: root.todaySlots > 0
 
     onPressed: function(b) {
       if (b === Qt.MiddleButton) root.refresh()
       else root.togglePanel()
-    }
-  }
-
-  readonly property string HeatmapHours: {
-    var h = root.todaySlots * 0.5
-    if (h === 1) return "1 hour"
-    if (h === Math.floor(h)) return h + " hours"
-    return h + " hours"
-  }
-
-  Component {
-    id: weekMark
-    Item {
-      Row {
-        anchors.centerIn: parent
-        spacing: 1
-        Repeater {
-          model: 7
-          Rectangle {
-            required property int index
-            width: 2
-            height: 7
-            radius: 0
-            color: {
-              var _ = root.dataRev
-              var day = root.last7[index]
-              return root.cellColor(day ? day.slots : 0, day ? day.coverage : "empty")
-            }
-          }
-        }
-      }
     }
   }
 }
