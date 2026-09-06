@@ -30,6 +30,7 @@ Panel {
   property string rootDraft: ""
   property string scanHint: ""
   property bool firstScanDone: false
+  property double lastScanAt: 0
 
   onOpenedChanged: if (opened) {
     if (yearFlick) yearFlick.pendingToday = true
@@ -83,7 +84,18 @@ Panel {
   }
 
   function refresh() {
-    if (!scanProc.running) scanProc.running = true
+    if (scanProc.running) return
+    root.lastScanAt = Date.now()
+    scanProc.running = true
+  }
+
+  function scanIfStale() {
+    if (scanProc.running) return
+    if (root.lastScanAt > 0 && (Date.now() - root.lastScanAt) < 30000) {
+      if (dataFile) dataFile.reload()
+      return
+    }
+    root.refresh()
   }
 
   function maybeFirstScan(empty) {
@@ -105,6 +117,7 @@ Panel {
   }
 
   function open() {
+    root.scanIfStale()
     if (dataFile) dataFile.reload()
     if (settingsFile) settingsFile.reload()
     root.controller.show()
@@ -244,16 +257,39 @@ Panel {
           topPadding: Style.space(14)
           bottomPadding: Style.space(16)
 
-          Text {
+          Row {
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: root.todaySlots <= 0
-              ? "This Omarchy box is waiting for you"
-              : ("You built " + Heatmap.hoursActive(root.todaySlots) + " hours here today")
-            color: root.contentForeground
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.body
-            font.bold: true
-            wrapMode: Text.WordWrap
+            spacing: Style.space(12)
+
+            Text {
+              width: parent.width - refreshBtn.implicitWidth - parent.spacing
+              text: scanProc.running
+                ? "Scanning this machine…"
+                : (root.todaySlots <= 0
+                  ? "This Omarchy box is waiting for you"
+                  : ("You built " + Heatmap.hoursActive(root.todaySlots) + " hours here today"))
+              color: root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+              wrapMode: Text.WordWrap
+            }
+
+            Text {
+              id: refreshBtn
+              text: scanProc.running ? "…" : "Refresh"
+              color: scanProc.running ? root.dim : root.accent
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.bold: true
+              anchors.verticalCenter: parent.verticalCenter
+              MouseArea {
+                anchors.fill: parent
+                enabled: !scanProc.running
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.refresh()
+              }
+            }
           }
 
           Text {
@@ -523,7 +559,7 @@ Panel {
 
           Text {
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: "This is your Omarchy machine’s year. r refreshes. Middle-click the sprout in the bar."
+            text: "This is your Omarchy machine’s year."
             color: root.dim
             wrapMode: Text.WordWrap
             font.pixelSize: 10

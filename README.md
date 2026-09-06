@@ -18,7 +18,7 @@ python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan
 omarchy-shell shell rescanPlugins
 ```
 
-Then click the sprout on the right of the bar (after Agents). The year should open on **today**. Flick left for earlier months. Middle-click the sprout (or `r` in the panel) to scan now.
+Then click the sprout on the right of the bar (after Agents). That **scans**, then opens the year on **today**. Flick left for earlier months. Use **Refresh** in the panel if you want another scan right now.
 
 When `https://github.com/bjcatar/garden` is public:
 
@@ -28,13 +28,13 @@ python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --install-timer
 python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan
 ```
 
-`--install-timer` copies the user systemd units and enables them. The panel also runs **one** scan if heatmap data is missing (no per-monitor timer storm).
+`--install-timer` copies the user systemd units and enables a 15-minute scan while the panel is closed. Opening the panel (or Refresh) scans now. No per-monitor QML timer.
 
 The timer assumes the plugin lives at `~/.config/omarchy/plugins/bjcatar.garden`.
 
 ## Bar
 
-One themed Nerd Font sprout, same slot as Bluetooth. Hover is hours built **here** today. Left-click opens the year. Middle-click refreshes.
+One themed Nerd Font sprout, same slot as Bluetooth. Hover is hours built **here** today. Left-click scans (if it has been more than 30s) and opens the year. Middle-click scans even if the panel is already open.
 
 ## Folders
 
