@@ -5,7 +5,7 @@
   "version": "0.2.0",
   "author": "bjcatar",
   "license": "MIT",
-  "description": "What you actually did on this PC: a compact week mark and a year of half-hour coding activity in folders you watch. Not GitHub.",
+  "description": "A private year of coding on this Omarchy machine. Squares are half-hours in folders you watch — not GitHub.com, not token usage.",
   "kinds": ["bar-widget"],
   "activation": "on-demand",
   "entryPoints": {
@@ -13,7 +13,7 @@
   },
   "barWidget": {
     "displayName": "Garden",
-    "description": "Local coding activity on this machine — not GitHub.com, not token usage.",
+    "description": "Hours built on this PC. Click the sprout for the year.",
     "category": "Info",
     "aliases": ["garden", "activity", "heatmap", "git", "coding"],
     "allowMultiple": false,
