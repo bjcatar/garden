@@ -276,12 +276,12 @@ def load_ledger_slots(start: date) -> Dict[str, Dict[str, Any]]:
 
 def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[Path]) -> Dict[str, Any]:
     today = date.today()
-    start = today - timedelta(days=364)
-    buckets = load_ledger_slots(start)
     first = state.get("firstSampleAt")
     first_day = None
     if isinstance(first, (int, float)):
-        first_day = datetime.fromtimestamp(first).strftime("%Y-%m-%d")
+        first_day = datetime.fromtimestamp(first).date()
+    start = first_day if first_day and first_day <= today else today
+    buckets = load_ledger_slots(start)
 
     days_out: Dict[str, Any] = {}
     cursor = start
@@ -292,9 +292,7 @@ def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[P
             slots = bucket["slots"]
             obs = bucket["obs_slots"]
             git_only = bool(bucket["git_slots"]) and not obs
-            coverage = "observed"
-            if git_only:
-                coverage = "git-history-only"
+            coverage = "git-history-only" if git_only else "observed"
             days_out[iso] = {
                 "slots": len(slots),
                 "commits": bucket["commits"],
@@ -303,9 +301,9 @@ def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[P
                 "repos": sorted(bucket["repos"]),
                 "coverage": coverage,
             }
-        elif first_day and iso < first_day:
+        else:
             days_out[iso] = {
-                "slots": 0, "commits": 0, "files": 0, "agents": 0, "repos": [], "coverage": "unknown",
+                "slots": 0, "commits": 0, "files": 0, "agents": 0, "repos": [], "coverage": "observed",
             }
         cursor += timedelta(days=1)
 
@@ -334,11 +332,19 @@ def scan() -> Dict[str, Any]:
         save_settings(settings)
     state = load_state()
     now = time.time()
-    last = float(state.get("lastSampleAt") or now)
+    last = float(state.get("lastSampleAt") or 0)
     first = state.get("firstSampleAt")
     if not first:
         state["firstSampleAt"] = now
         first = now
+    midnight = datetime.combine(date.today(), datetime.min.time()).timestamp()
+    catchup_day = state.get("fileCatchupDay")
+    today_iso = date.today().isoformat()
+    if catchup_day != today_iso:
+        file_since = midnight
+        state["fileCatchupDay"] = today_iso
+    else:
+        file_since = last if last > 0 else midnight
 
     repos = discover_repos(settings.get("roots") or [])
     exclude = settings.get("excludeRepos") or []
@@ -351,7 +357,7 @@ def scan() -> Dict[str, Any]:
         if settings.get("sources", {}).get("git", True):
             events.extend(git_commit_events(repo, settings, since))
         if settings.get("sources", {}).get("files", True):
-            events.extend(file_events(repo, last))
+            events.extend(file_events(repo, file_since))
 
     agent_counts = state.get("agentCounts") or {}
     if settings.get("sources", {}).get("agents"):

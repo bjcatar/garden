@@ -67,6 +67,7 @@ Panel {
     weeks = Heatmap.buildWeeks(start, end, days)
     monthLabels = Heatmap.monthLabels(weeks)
     last7 = Heatmap.lastNDays(end, 7, days)
+    if (!selectedDate) selectedDate = todayIso
     dataRev++
   }
 
@@ -226,9 +227,9 @@ Panel {
 
           Text {
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: root.totalSlots <= 0
+            text: root.todaySlots <= 0
               ? "This Omarchy box is waiting for you"
-              : ("You built " + Heatmap.hoursActive(root.totalSlots) + " hours on this machine")
+              : ("You built " + Heatmap.hoursActive(root.todaySlots) + " hours here today")
             color: root.contentForeground
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.body
@@ -238,9 +239,12 @@ Panel {
 
           Text {
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: root.activeDays <= 0
-              ? "Not GitHub. These squares are half-hours you actually coded here, in folders you chose."
-              : (root.activeDays + " days you showed up · half-hours in your watched folders — this PC, not the cloud")
+            text: {
+              var watched = snapshot.range && snapshot.range.start ? snapshot.range.start : ""
+              if (root.todaySlots <= 0)
+                return "Garden only counts work after it started watching — not a GitHub year of silence."
+              return Heatmap.hoursActive(root.todaySlots) + "h today · " + root.activeDays + " day" + (root.activeDays === 1 ? "" : "s") + " on this PC" + (watched ? (" · watching since " + watched) : "")
+            }
             color: root.dim
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
