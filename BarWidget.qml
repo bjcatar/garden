@@ -75,7 +75,6 @@ BarWidget {
     bar: root.bar
     text: "󰹢"
     tooltipText: root.hoursLabel
-    active: root.todaySlots > 0
 
     onPressed: function(b) {
       if (b === Qt.MiddleButton) root.refresh()
