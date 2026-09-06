@@ -47,6 +47,7 @@ Panel {
   readonly property int todaySlots: {
     var _ = dataRev
     var row = (snapshot.days && snapshot.days[todayIso]) || snapshot.today || {}
+    if (row.coverage === "git-history-only") return 0
     return row.slots || 0
   }
   readonly property int totalSlots: snapshot.totalSlots || 0
@@ -512,7 +513,7 @@ Panel {
           }
 
           Text {
-            visible: root.selectedDate !== "" && root.selectedDay && root.selectedDay.bySlot
+            visible: !!(root.selectedDate !== "" && root.selectedDay && root.selectedDay.bySlot)
             width: parent.width - parent.leftPadding - parent.rightPadding
             wrapMode: Text.WordWrap
             color: root.dim
@@ -531,7 +532,7 @@ Panel {
                 var label = (hh < 10 ? "0" : "") + hh + ":" + mm
                 var bits = [label]
                 if (info.git) bits.push(info.git + " commit" + (info.git === 1 ? "" : "s"))
-                if (info.file) bits.push("files")
+                if (info.file) bits.push(info.file + " file" + (info.file === 1 ? "" : "s"))
                 var repos = info.repos || []
                 if (repos.length) bits.push(repos.join(", "))
                 lines.push(bits.join(" · "))

@@ -323,7 +323,7 @@ def load_ledger_slots(start: date) -> Dict[str, Dict[str, Any]]:
                 bucket["obs_slots"].add(slot)
                 path = event.get("path") or ""
                 if path:
-                    bucket["file_paths"].add(path)
+                    bucket["file_paths"].add(f"{event.get('repo') or ''}:{path}")
                 info["file"] += 1
             elif kind == "agent":
                 bucket["obs_slots"].add(slot)
@@ -398,7 +398,11 @@ def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[P
     today_row = days_out.get(today_iso) or {"slots": 0, "commits": 0, "files": 0, "agents": 0, "repos": [], "coverage": "observed"}
     total_slots = sum(int(v.get("slots") or 0) for v in days_out.values())
     active_days = sum(1 for v in days_out.values() if int(v.get("slots") or 0) > 0)
-    review_rows = [{"day": iso, "slots": bucket["slots"]} for iso, bucket in buckets.items()]
+    review_rows = []
+    for iso, bucket in buckets.items():
+        if bucket.get("git_slots") and not bucket.get("obs_slots"):
+            continue
+        review_rows.append({"day": iso, "slots": bucket.get("obs_slots") or bucket.get("slots") or set()})
     review = g.collect_review(review_rows, today)
     return {
         "generatedAt": datetime.now().isoformat(timespec="seconds"),
