@@ -49,6 +49,10 @@ class SlotMathTests(unittest.TestCase):
         self.assertEqual(g.day_level(8), 4)
         self.assertEqual(g.day_level(20), 4)
 
+    def test_slot_minutes_stay_thirty(self):
+        s = g.normalize_settings({"slotMinutes": 15})
+        self.assertEqual(s["slotMinutes"], 30)
+
     def test_hours_active_from_slots(self):
         self.assertEqual(g.hours_active(6), 3.0)
         self.assertEqual(g.hours_active(1), 0.5)

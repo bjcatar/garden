@@ -117,8 +117,7 @@ def normalize_settings(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         for key in ("files", "git", "agents"):
             if key in raw["sources"]:
                 data["sources"][key] = bool(raw["sources"][key])
-    if isinstance(raw.get("slotMinutes"), int) and raw["slotMinutes"] in (15, 30, 60):
-        data["slotMinutes"] = raw["slotMinutes"]
+    data["slotMinutes"] = SLOT_MINUTES
     return data
 
 

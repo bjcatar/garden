@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Observe coding activity in watched folders and write heatmap.json.
 
-Does not start from the bar widget. Run from systemd or the CLI.
+Run from systemd, the CLI, or the panel Refresh / open path.
 """
 from __future__ import annotations
 
@@ -135,6 +135,7 @@ def git_commit_events(repo: Path, settings: Dict[str, Any], since: str) -> List[
     seen: Set[str] = set()
     text = _git(repo, [
         "log",
+        "--branches",
         "--since", since,
         "--pretty=format:%H%x09%ae%x09%ad%x09%s",
         "--date=format-local:%Y-%m-%d %H:%M:%S",

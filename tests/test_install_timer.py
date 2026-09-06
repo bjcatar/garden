@@ -56,6 +56,16 @@ class InstallTimerTests(unittest.TestCase):
             dest.mkdir()
             self.assertEqual(scan.uninstall_timer(dest, run_systemctl=False), 0)
 
+    def test_install_reports_systemctl_failure(self):
+        orig = scan._systemctl_user
+        scan._systemctl_user = lambda *args: False
+        try:
+            with tempfile.TemporaryDirectory() as raw:
+                rc = scan.install_timer(Path(raw) / "user", run_systemctl=True)
+                self.assertEqual(rc, 1)
+        finally:
+            scan._systemctl_user = orig
+
 
 if __name__ == "__main__":
     unittest.main()

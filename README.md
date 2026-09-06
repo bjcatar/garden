@@ -42,12 +42,12 @@ Default watch: `~/Projects`. Add/remove folders in the panel. `$HOME` is rejecte
 
 | Signal | Lights a 30-minute slot |
 |---|---|
-| File save | Source-ish files under a watched folder (skip `node_modules`, `.git`, venvs, …). Untracked files in a git repo count if git would not ignore them. |
+| File save | Source-ish files under a watched folder (skip `node_modules`, `.git`, venvs, …). Counted from **mtime samples**, not each keystroke. Untracked files in a git repo count if git would not ignore them. |
 | Git commit | Author email matches yours, local time, subject not `vault backup:`. **Pushed commits still count.** |
 
 **Hours ≠ commit count.** The headline counts lit half-hours, not how many times you saved.
 
-Agent token totals are **not** squares. The panel may show a one-line “most used model” from Omarchy’s existing agent usage files — that is tokens, not hours.
+Agent token totals are **not** squares and are not shown in the panel.
 
 ## Data (all on this PC)
 

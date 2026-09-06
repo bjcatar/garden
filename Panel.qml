@@ -158,8 +158,6 @@ Panel {
     var next = Heatmap.isoLocal(d)
     if (snapshot.days && snapshot.days[next] !== undefined)
       selectedDate = next
-    else
-      selectedDate = next
   }
 
   FileView {
@@ -202,8 +200,12 @@ Panel {
   Process {
     id: addProc
     onExited: function(code) {
+      if (code !== 0) {
+        root.scanHint = "That folder was rejected (must be inside your home, not your home directory itself)."
+        return
+      }
       root.rootDraft = ""
-      root.scanHint = code === 0 ? "" : "That folder was rejected (must be inside your home, not your home directory itself)."
+      root.scanHint = ""
       root.refresh()
     }
   }
@@ -294,24 +296,6 @@ Panel {
           Text {
             width: parent.width - parent.leftPadding - parent.rightPadding
             text: "Hours are half-hours you showed up — six commits in one window is still 0.5h, not a busy GitHub day."
-            color: root.dim
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-          }
-
-          Text {
-            visible: !!(root.snapshot.topModel && root.snapshot.topModel.label)
-            width: parent.width - parent.leftPadding - parent.rightPadding
-            text: {
-              var life = root.snapshot.topModel
-              var day = root.snapshot.topModelToday
-              if (!life) return ""
-              var line = "Most used model (tokens, not hours): " + life.label
-              if (day && day.label && day.label !== life.label) line += " · today " + day.label
-              else if (day && day.label) line += " · also today"
-              return line
-            }
             color: root.dim
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
@@ -482,7 +466,7 @@ Panel {
               var bits = [Heatmap.prettyDate(root.selectedDate)]
               bits.push(Heatmap.hoursActive(d.slots || 0) + "h observed")
               if (d.commits) bits.push(d.commits + " commits")
-              if (d.files) bits.push(d.files + " file saves")
+              if (d.files) bits.push(d.files + " files touched")
               if (d.coverage === "git-history-only") bits.push("git history only — may not have happened on this PC")
               if (d.coverage === "unknown") bits.push("not monitored yet")
               if (d.repos && d.repos.length) bits.push(d.repos.join(" · "))
@@ -496,6 +480,16 @@ Panel {
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.bodySmall
             font.bold: true
+          }
+
+          Text {
+            visible: !(root.gardenSettings.roots || root.snapshot.roots || []).length
+            width: parent.width - parent.leftPadding - parent.rightPadding
+            text: "Nothing is watched. Add a folder below."
+            color: root.dim
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
           }
 
           Repeater {
