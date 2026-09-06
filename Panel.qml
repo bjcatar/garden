@@ -30,6 +30,8 @@ Panel {
   property string rootDraft: ""
   property string scanHint: ""
 
+  onOpenedChanged: if (opened) Qt.callLater(function() { if (yearFlick) yearFlick.scrollToToday() })
+
   readonly property string todayIso: {
     var n = new Date()
     return n.getFullYear() + "-" + Heatmap.pad2(n.getMonth() + 1) + "-" + Heatmap.pad2(n.getDate())
@@ -69,6 +71,7 @@ Panel {
     last7 = Heatmap.lastNDays(end, 7, days)
     if (!selectedDate || selectedDate !== todayIso) selectedDate = todayIso
     dataRev++
+    Qt.callLater(function() { if (yearFlick) yearFlick.scrollToToday() })
   }
 
   function scanBin() {
@@ -256,85 +259,104 @@ Panel {
 
           Column {
             spacing: Style.space(4)
-
-            Item {
-              width: Math.min(parent.parent.width - 32, root.labelW + root.weeks.length * (root.cell + root.gap))
-              height: root.monthH
-              Repeater {
-                model: root.monthLabels
-                Text {
-                  required property var modelData
-                  x: root.labelW + modelData.index * (root.cell + root.gap)
-                  text: modelData.label
-                  color: root.dim
-                  font.family: root.contentFontFamily
-                  font.pixelSize: 10
-                }
-              }
-            }
+            width: parent.width - parent.leftPadding - parent.rightPadding
 
             Row {
-              Column {
+              spacing: 0
+              width: parent.width
+
+              Item {
                 width: root.labelW
-                spacing: root.gap
-                Repeater {
-                  model: Heatmap.WEEKDAY_LABELS
-                  Text {
-                    required property var modelData
-                    width: root.labelW - 4
-                    height: root.cell
-                    text: modelData
-                    color: root.dim
-                    font.family: root.contentFontFamily
-                    font.pixelSize: 9
-                    horizontalAlignment: Text.AlignRight
-                    verticalAlignment: Text.AlignVCenter
+                height: root.monthH + 7 * (root.cell + root.gap)
+                Column {
+                  y: root.monthH
+                  width: root.labelW
+                  spacing: root.gap
+                  Repeater {
+                    model: Heatmap.WEEKDAY_LABELS
+                    Text {
+                      required property var modelData
+                      width: root.labelW - 4
+                      height: root.cell
+                      text: modelData
+                      color: root.dim
+                      font.family: root.contentFontFamily
+                      font.pixelSize: 9
+                      horizontalAlignment: Text.AlignRight
+                      verticalAlignment: Text.AlignVCenter
+                    }
                   }
                 }
               }
 
               Flickable {
-                width: Math.max(Style.space(480), body.width - body.leftPadding - body.rightPadding - root.labelW)
-                height: 7 * (root.cell + root.gap)
+                id: yearFlick
+                width: parent.width - root.labelW
+                height: root.monthH + 7 * (root.cell + root.gap)
                 clip: true
                 contentWidth: Math.max(width, root.weeks.length * (root.cell + root.gap))
+                contentHeight: height
                 flickableDirection: Flickable.HorizontalFlick
                 boundsBehavior: Flickable.StopAtBounds
+                // A year does not fit. Open on today, not last September.
+                function scrollToToday() {
+                  contentX = Math.max(0, contentWidth - width)
+                }
+                onContentWidthChanged: Qt.callLater(scrollToToday)
+                onWidthChanged: Qt.callLater(scrollToToday)
 
-                Row {
-                  spacing: root.gap
-                  Repeater {
-                    model: root.weeks
-                    Column {
-                      id: weekCol
-                      required property var modelData
-                      spacing: root.gap
-                      Repeater {
-                        model: weekCol.modelData
-                        Rectangle {
-                          required property var modelData
-                          width: root.cell
-                          height: root.cell
-                          radius: 2
-                          color: {
-                            if (!modelData.inRange) return "transparent"
-                            if (modelData.date === root.todayIso && modelData.slots > 0)
-                              return Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 1)
-                            return root.colorForSlots(modelData.slots, modelData.coverage)
-                          }
-                          border.width: modelData.date === root.todayIso ? 2 : (root.selectedDate === modelData.date ? 1 : 0)
-                          border.color: root.accent
-                          opacity: modelData.inRange ? 1 : 0
-                          MouseArea {
-                            anchors.fill: parent
-                            enabled: modelData.inRange
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.selectedDate = modelData.date
-                            PanelToolTip {
-                              visible: parent.containsMouse && modelData.inRange
-                              text: Heatmap.hoursActive(modelData.slots) + "h on this PC · " + Heatmap.prettyDate(modelData.date)
-                              fontFamily: root.contentFontFamily
+                Column {
+                  spacing: 0
+                  Item {
+                    width: root.weeks.length * (root.cell + root.gap)
+                    height: root.monthH
+                    Repeater {
+                      model: root.monthLabels
+                      Text {
+                        required property var modelData
+                        x: modelData.index * (root.cell + root.gap)
+                        text: modelData.label
+                        color: root.dim
+                        font.family: root.contentFontFamily
+                        font.pixelSize: 10
+                      }
+                    }
+                  }
+                  Row {
+                    spacing: root.gap
+                    Repeater {
+                      model: root.weeks
+                      Column {
+                        id: weekCol
+                        required property var modelData
+                        spacing: root.gap
+                        Repeater {
+                          model: weekCol.modelData
+                          Rectangle {
+                            required property var modelData
+                            width: root.cell
+                            height: root.cell
+                            radius: 2
+                            color: {
+                              if (!modelData.inRange) return "transparent"
+                              if (modelData.date === root.todayIso && modelData.slots > 0)
+                                return Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 1)
+                              return root.colorForSlots(modelData.slots, modelData.coverage)
+                            }
+                            border.width: modelData.date === root.todayIso ? 2 : (root.selectedDate === modelData.date ? 1 : 0)
+                            border.color: root.accent
+                            opacity: modelData.inRange ? 1 : 0
+                            MouseArea {
+                              anchors.fill: parent
+                              enabled: modelData.inRange
+                              hoverEnabled: true
+                              cursorShape: Qt.PointingHandCursor
+                              onClicked: root.selectedDate = modelData.date
+                              PanelToolTip {
+                                visible: parent.containsMouse && modelData.inRange
+                                text: Heatmap.hoursActive(modelData.slots) + "h on this PC · " + Heatmap.prettyDate(modelData.date)
+                                fontFamily: root.contentFontFamily
+                              }
                             }
                           }
                         }
@@ -346,7 +368,15 @@ Panel {
             }
 
             Row {
-              spacing: 4
+              width: parent.width
+              spacing: 8
+              Text {
+                text: yearFlick.contentX > 8 ? "← earlier" : "This year"
+                color: root.dim
+                font.pixelSize: 10
+                font.family: root.contentFontFamily
+              }
+              Item { width: 8; height: 1 }
               Text { text: "Less"; color: root.dim; font.pixelSize: 10; font.family: root.contentFontFamily }
               Repeater {
                 model: 5
@@ -359,6 +389,13 @@ Panel {
                 }
               }
               Text { text: "More"; color: root.dim; font.pixelSize: 10; font.family: root.contentFontFamily }
+              Item { width: parent.width > 1 ? 1 : 1; height: 1 }
+              Text {
+                text: "now →"
+                color: root.dim
+                font.pixelSize: 10
+                font.family: root.contentFontFamily
+              }
             }
           }
 
