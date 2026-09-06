@@ -274,6 +274,62 @@ def load_ledger_slots(start: date) -> Dict[str, Dict[str, Any]]:
     return days
 
 
+def _model_tokens(rec: Any) -> int:
+    if isinstance(rec, (int, float)):
+        return int(rec)
+    if not isinstance(rec, dict):
+        return 0
+    if rec.get("total"):
+        return int(rec["total"])
+    keys = (
+        "inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens",
+        "input", "output", "cacheRead", "cacheWrite",
+    )
+    return sum(int(rec.get(k) or 0) for k in keys)
+
+
+def _pretty_model(model_id: str) -> str:
+    names = {
+        "grok-4.6-build": "Grok 4.6 Build",
+        "claude-fable-5-1": "Claude Fable 5.1",
+        "gpt-6-astra": "GPT-6 Astra",
+    }
+    return names.get(model_id, model_id)
+
+
+def collect_models() -> Dict[str, Any]:
+    lifetime: Dict[str, int] = {}
+    today_map: Dict[str, int] = {}
+    if USAGE_DIR.is_dir():
+        for path in sorted(USAGE_DIR.glob("*.json")):
+            data = _read_json(path, {})
+            if not isinstance(data, dict):
+                continue
+            usage = data.get("modelUsage") or {}
+            if isinstance(usage, dict):
+                for mid, rec in usage.items():
+                    lifetime[mid] = lifetime.get(mid, 0) + _model_tokens(rec)
+            by_today = data.get("todayTokensByModel") or {}
+            if isinstance(by_today, dict):
+                for mid, rec in by_today.items():
+                    today_map[mid] = today_map.get(mid, 0) + _model_tokens(rec)
+
+    def top(src: Dict[str, int]) -> Optional[Dict[str, Any]]:
+        if not src:
+            return None
+        mid = max(src.items(), key=lambda kv: kv[1])[0]
+        return {"id": mid, "label": _pretty_model(mid), "tokens": src[mid]}
+
+    return {
+        "topModel": top(lifetime),
+        "topModelToday": top(today_map),
+        "models": [
+            {"id": k, "label": _pretty_model(k), "tokens": v}
+            for k, v in sorted(lifetime.items(), key=lambda kv: -kv[1])[:8]
+        ],
+    }
+
+
 def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[Path]) -> Dict[str, Any]:
     today = date.today()
     first = state.get("firstSampleAt")
@@ -324,6 +380,7 @@ def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[P
         "repos": [{"path": str(p), "name": p.name, "label": repo_label(p), "muted": muted(p, settings.get("excludeRepos") or [])} for p in repos],
         "sources": settings.get("sources"),
         "slotMinutes": settings.get("slotMinutes") or 30,
+        **collect_models(),
     }
 
 

@@ -67,7 +67,7 @@ Panel {
     weeks = Heatmap.buildWeeks(start, end, days)
     monthLabels = Heatmap.monthLabels(weeks)
     last7 = Heatmap.lastNDays(end, 7, days)
-    if (!selectedDate) selectedDate = todayIso
+    if (!selectedDate || selectedDate !== todayIso) selectedDate = todayIso
     dataRev++
   }
 
@@ -238,10 +238,16 @@ Panel {
           }
 
           Text {
+            visible: !!(root.snapshot.topModel && root.snapshot.topModel.label)
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: root.todaySlots <= 0
-              ? "The bed is a year of tiles. Empty ones were not measured yet — this is not GitHub."
-              : (Heatmap.hoursActive(root.todaySlots) + "h today · " + root.activeDays + " lit day" + (root.activeDays === 1 ? "" : "s") + " on this PC")
+            text: {
+              var life = root.snapshot.topModel
+              var day = root.snapshot.topModelToday
+              if (!life) return ""
+              var line = "Most used: " + life.label
+              if (day && day.label) line += " · today " + day.label
+              return line
+            }
             color: root.dim
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
@@ -310,8 +316,13 @@ Panel {
                           width: root.cell
                           height: root.cell
                           radius: 2
-                          color: modelData.inRange ? root.colorForSlots(modelData.slots, modelData.coverage) : "transparent"
-                          border.width: root.selectedDate === modelData.date ? 1 : 0
+                          color: {
+                            if (!modelData.inRange) return "transparent"
+                            if (modelData.date === root.todayIso && modelData.slots > 0)
+                              return Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 1)
+                            return root.colorForSlots(modelData.slots, modelData.coverage)
+                          }
+                          border.width: modelData.date === root.todayIso ? 2 : (root.selectedDate === modelData.date ? 1 : 0)
                           border.color: root.accent
                           opacity: modelData.inRange ? 1 : 0
                           MouseArea {
