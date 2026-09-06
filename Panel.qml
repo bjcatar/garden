@@ -33,6 +33,7 @@ Panel {
   property double lastScanAt: 0
 
   onOpenedChanged: if (opened) {
+    selectedDate = todayIso
     if (yearFlick) yearFlick.pendingToday = true
     Qt.callLater(function() { if (yearFlick) yearFlick.scrollToToday() })
   }
@@ -219,7 +220,13 @@ Panel {
 
   Process {
     id: timerProc
-    onExited: function() { root.refresh() }
+    onExited: function(code) {
+      if (code !== 0) {
+        root.scanHint = "Could not enable background scan (exit " + code + ")."
+        return
+      }
+      root.refresh()
+    }
   }
 
   KeyboardPanel {
@@ -401,7 +408,10 @@ Panel {
                             radius: 2
                             color: {
                               if (!modelData.inRange) return "transparent"
-                              return root.colorForSlots(modelData.slots, modelData.coverage)
+                              if (modelData.coverage === "git-history-only")
+                                return root.colorForSlots(modelData.slots, "git-history-only")
+                              var n = (modelData.observedSlots !== undefined) ? modelData.observedSlots : (modelData.slots || 0)
+                              return root.colorForSlots(n, "observed")
                             }
                             border.width: modelData.date === root.todayIso ? 2 : (root.selectedDate === modelData.date ? 1 : 0)
                             border.color: root.accent
@@ -416,9 +426,12 @@ Panel {
                                 visible: parent.containsMouse && modelData.inRange
                                 text: {
                                   var cov = modelData.coverage || ""
-                                  var n = (modelData.observedSlots !== undefined) ? modelData.observedSlots : (cov === "git-history-only" ? 0 : (modelData.slots || 0))
-                                  var where = cov === "git-history-only" ? "git history only" : "on this PC"
-                                  return Heatmap.hoursActive(n) + "h " + where + " · " + Heatmap.prettyDate(modelData.date)
+                                  if (cov === "git-history-only") {
+                                    var c = modelData.commits || 0
+                                    return (c ? (c + " commit" + (c === 1 ? "" : "s") + " · ") : "") + "git history only · " + Heatmap.prettyDate(modelData.date)
+                                  }
+                                  var n = (modelData.observedSlots !== undefined) ? modelData.observedSlots : (modelData.slots || 0)
+                                  return Heatmap.hoursActive(n) + "h on this PC · " + Heatmap.prettyDate(modelData.date)
                                 }
                                 fontFamily: root.contentFontFamily
                               }
@@ -454,7 +467,6 @@ Panel {
                 }
               }
               Text { text: "More"; color: root.dim; font.pixelSize: 10; font.family: root.contentFontFamily }
-              Item { width: parent.width > 1 ? 1 : 1; height: 1 }
               Text {
                 text: "now →"
                 color: root.dim
