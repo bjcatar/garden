@@ -60,6 +60,7 @@ function buildWeeks(startIso, endIso, days) {
         commits: cell ? (cell.commits || 0) : 0,
         files: cell ? (cell.files || 0) : 0,
         coverage: cell ? (cell.coverage || "empty") : "empty",
+        observedSlots: cell && cell.observedSlots != null ? cell.observedSlots : (cell ? (cell.slots || 0) : 0),
         repos: cell && cell.repos ? cell.repos : []
       })
       cursor.setDate(cursor.getDate() + 1)

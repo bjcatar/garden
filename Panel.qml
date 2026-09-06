@@ -47,6 +47,7 @@ Panel {
   readonly property int todaySlots: {
     var _ = dataRev
     var row = (snapshot.days && snapshot.days[todayIso]) || snapshot.today || {}
+    if (row.observedSlots !== undefined) return row.observedSlots || 0
     if (row.coverage === "git-history-only") return 0
     return row.slots || 0
   }
@@ -413,7 +414,12 @@ Panel {
                               onClicked: root.selectedDate = modelData.date
                               PanelToolTip {
                                 visible: parent.containsMouse && modelData.inRange
-                                text: Heatmap.hoursActive(modelData.slots) + "h on this PC · " + Heatmap.prettyDate(modelData.date)
+                                text: {
+                                  var cov = modelData.coverage || ""
+                                  var n = (modelData.observedSlots !== undefined) ? modelData.observedSlots : (cov === "git-history-only" ? 0 : (modelData.slots || 0))
+                                  var where = cov === "git-history-only" ? "git history only" : "on this PC"
+                                  return Heatmap.hoursActive(n) + "h " + where + " · " + Heatmap.prettyDate(modelData.date)
+                                }
                                 fontFamily: root.contentFontFamily
                               }
                             }
@@ -470,7 +476,7 @@ Panel {
               if (!root.selectedDate) return ""
               var d = root.selectedDay || {}
               var bits = [Heatmap.prettyDate(root.selectedDate)]
-              bits.push(Heatmap.hoursActive(d.slots || 0) + "h observed")
+              bits.push(Heatmap.hoursActive(d.observedSlots !== undefined ? d.observedSlots : (d.coverage === "git-history-only" ? 0 : (d.slots || 0))) + "h observed")
               if (d.commits) bits.push(d.commits + " commits")
               if (d.files) bits.push(d.files + " files touched")
               if (d.coverage === "git-history-only") bits.push("git history only — may not have happened on this PC")
