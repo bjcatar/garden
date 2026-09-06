@@ -1,0 +1,8 @@
+{
+  "name": "local-contrib",
+  "label": "Contributions",
+  "description": "GitHub-style heatmap of git commits authored on this machine",
+  "icon": "Calendar",
+  "version": "1.0.0",
+  "api": "plugin_api.py"
+}
