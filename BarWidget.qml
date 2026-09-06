@@ -1,3 +1,9 @@
+// Garden bar widget.
+// - Property names cannot begin with an uppercase letter.
+// - IpcHandler needs import Quickshell.Io.
+// - Do not set BarIconButton.active (that is the urgent/orange color).
+// - Panel must use manageIpc: false (IPC lives here).
+
 import QtQuick
 import Quickshell
 import Quickshell.Io

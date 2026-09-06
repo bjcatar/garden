@@ -31,7 +31,10 @@ Panel {
   property string scanHint: ""
   property bool firstScanDone: false
 
-  onOpenedChanged: if (opened) Qt.callLater(function() { if (yearFlick) yearFlick.scrollToToday() })
+  onOpenedChanged: if (opened) {
+    if (yearFlick) yearFlick.pendingToday = true
+    Qt.callLater(function() { if (yearFlick) yearFlick.scrollToToday() })
+  }
 
   readonly property string todayIso: {
     var n = new Date()
@@ -70,9 +73,8 @@ Panel {
     weeks = Heatmap.buildWeeks(start, end, days)
     monthLabels = Heatmap.monthLabels(weeks)
     last7 = Heatmap.lastNDays(end, 7, days)
-    if (!selectedDate || selectedDate !== todayIso) selectedDate = todayIso
+    if (!selectedDate) selectedDate = todayIso
     dataRev++
-    Qt.callLater(function() { if (yearFlick) yearFlick.scrollToToday() })
   }
 
   function scanBin() {
@@ -261,8 +263,9 @@ Panel {
               var life = root.snapshot.topModel
               var day = root.snapshot.topModelToday
               if (!life) return ""
-              var line = "Most used: " + life.label
-              if (day && day.label) line += " · today " + day.label
+              var line = "Most used model (tokens, not hours): " + life.label
+              if (day && day.label && day.label !== life.label) line += " · today " + day.label
+              else if (day && day.label) line += " · also today"
               return line
             }
             color: root.dim
@@ -312,12 +315,12 @@ Panel {
                 contentHeight: height
                 flickableDirection: Flickable.HorizontalFlick
                 boundsBehavior: Flickable.StopAtBounds
-                // A year does not fit. Open on today, not last September.
+                property bool pendingToday: true
                 function scrollToToday() {
                   contentX = Math.max(0, contentWidth - width)
+                  pendingToday = false
                 }
-                onContentWidthChanged: Qt.callLater(scrollToToday)
-                onWidthChanged: Qt.callLater(scrollToToday)
+                onContentWidthChanged: if (pendingToday) Qt.callLater(scrollToToday)
 
                 Column {
                   spacing: 0
