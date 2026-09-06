@@ -215,6 +215,11 @@ Panel {
     onExited: function() { root.refresh() }
   }
 
+  Process {
+    id: timerProc
+    onExited: function() { root.refresh() }
+  }
+
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -475,6 +480,67 @@ Panel {
           }
 
           Text {
+            visible: root.selectedDate !== ""
+            width: parent.width - parent.leftPadding - parent.rightPadding
+            text: "This day, half-hour by half-hour"
+            color: root.dim
+            font.family: root.contentFontFamily
+            font.pixelSize: 10
+          }
+
+          Row {
+            visible: root.selectedDate !== ""
+            spacing: 1
+            width: parent.width - parent.leftPadding - parent.rightPadding
+            Repeater {
+              model: 48
+              Rectangle {
+                required property int index
+                width: Math.max(2, Math.floor((body.width - body.leftPadding - body.rightPadding - 47) / 48))
+                height: 8
+                radius: 1
+                color: {
+                  var _ = root.dataRev
+                  var d = root.selectedDay || {}
+                  var idxs = d.slotIndexes || []
+                  var lit = false
+                  for (var i = 0; i < idxs.length; i++) if (idxs[i] === index) lit = true
+                  return lit ? root.accent : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.16)
+                }
+              }
+            }
+          }
+
+          Text {
+            visible: root.selectedDate !== "" && root.selectedDay && root.selectedDay.bySlot
+            width: parent.width - parent.leftPadding - parent.rightPadding
+            wrapMode: Text.WordWrap
+            color: root.dim
+            font.family: root.contentFontFamily
+            font.pixelSize: 10
+            text: {
+              var d = root.selectedDay || {}
+              var by = d.bySlot || {}
+              var idxs = d.slotIndexes || []
+              var lines = []
+              for (var i = 0; i < idxs.length; i++) {
+                var s = idxs[i]
+                var info = by[String(s)] || {}
+                var hh = Math.floor(s / 2)
+                var mm = (s % 2) ? "30" : "00"
+                var label = (hh < 10 ? "0" : "") + hh + ":" + mm
+                var bits = [label]
+                if (info.git) bits.push(info.git + " commit" + (info.git === 1 ? "" : "s"))
+                if (info.file) bits.push("files")
+                var repos = info.repos || []
+                if (repos.length) bits.push(repos.join(", "))
+                lines.push(bits.join(" · "))
+              }
+              return lines.join("\n")
+            }
+          }
+
+          Text {
             text: "Watching"
             color: root.contentForeground
             font.family: root.contentFontFamily
@@ -559,11 +625,27 @@ Panel {
 
           Text {
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: "This is your Omarchy machine’s year."
+            text: snapshot.timerEnabled ? "Background scan is on (every 15 min)." : "Background scan is off."
             color: root.dim
-            wrapMode: Text.WordWrap
-            font.pixelSize: 10
             font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Text {
+            visible: snapshot.timerEnabled !== true
+            text: "Enable background scan"
+            color: root.accent
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.bodySmall
+            font.bold: true
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: {
+                timerProc.command = ["python3", root.scanBin(), "--install-timer"]
+                timerProc.running = true
+              }
+            }
           }
         }
       }

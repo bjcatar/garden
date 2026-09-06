@@ -59,6 +59,25 @@ class ReviewContentTests(unittest.TestCase):
         self.assertEqual(out["peakWeekday"], "Thursday")
         self.assertIn("Thursday", out["sentence"])
         self.assertIn("05:00", out["sentence"])
+        self.assertIn("You show up on", out["sentence"])
+        self.assertIn("Around", out["sentence"])
+
+
+class CheckoutTests(unittest.TestCase):
+    def test_bulk_files_without_commit_are_dropped(self):
+        files = [{"type": "file", "day": "2026-09-06", "slot": 10, "repo": "r", "path": f"{i}.py"} for i in range(20)]
+        kept = g.drop_bulk_checkout(files)
+        self.assertEqual(kept, [])
+
+    def test_bulk_files_with_commit_kept(self):
+        files = [{"type": "file", "day": "2026-09-06", "slot": 10, "repo": "r", "path": f"{i}.py"} for i in range(20)]
+        files.append({"type": "git", "day": "2026-09-06", "slot": 10, "repo": "r", "hash": "abc"})
+        kept = g.drop_bulk_checkout(files)
+        self.assertEqual(len(kept), 21)
+
+    def test_small_file_burst_kept(self):
+        files = [{"type": "file", "day": "2026-09-06", "slot": 10, "repo": "r", "path": "a.py"}]
+        self.assertEqual(len(g.drop_bulk_checkout(files)), 1)
 
 
 if __name__ == "__main__":

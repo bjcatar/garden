@@ -12,7 +12,7 @@ python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --install-timer
 python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan
 ```
 
-Click the sprout on the right of the bar (after Agents). That **scans**, then opens the year on **today**. Flick left for earlier months. Use **Refresh** in the panel if you want another scan right now.
+Click the sprout on the right of the bar (after Agents). That **scans**, then opens the year on **today**. Click a day for a 48-slot strip and which repos lit each half-hour. Flick left for earlier months. Use **Refresh** in the panel if you want another scan right now. **Enable background scan** if the 15-minute timer is off.
 
 `--install-timer` copies the user systemd units and enables a 15-minute scan while the panel is closed. Opening the panel (or Refresh) scans now. No per-monitor QML timer. The timer assumes the plugin lives at `~/.config/omarchy/plugins/bjcatar.garden`.
 
