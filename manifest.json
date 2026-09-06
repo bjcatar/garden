@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "bjcatar.garden",
   "name": "Garden",
-  "version": "1.1.0",
+  "version": "0.2.0",
   "author": "bjcatar",
   "license": "MIT",
   "description": "What you actually did on this PC: a compact week mark and a year of half-hour coding activity in folders you watch. Not GitHub.",
