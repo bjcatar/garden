@@ -32,7 +32,10 @@ Panel {
   property bool firstScanDone: false
   property double lastScanAt: 0
 
+  property bool pinToday: false
+
   onOpenedChanged: if (opened) {
+    pinToday = true
     selectedDate = todayIso
     if (yearFlick) yearFlick.pendingToday = true
     Qt.callLater(function() { if (yearFlick) yearFlick.scrollToToday() })
@@ -80,7 +83,10 @@ Panel {
     weeks = Heatmap.buildWeeks(start, end, days)
     monthLabels = Heatmap.monthLabels(weeks)
     last7 = Heatmap.lastNDays(end, 7, days)
-    if (!selectedDate) selectedDate = todayIso
+    if (pinToday || !selectedDate) {
+      selectedDate = end
+      pinToday = false
+    }
     dataRev++
   }
 
@@ -408,6 +414,8 @@ Panel {
                             radius: 2
                             color: {
                               if (!modelData.inRange) return "transparent"
+                              if (modelData.coverage === "unknown")
+                                return root.colorForSlots(0, "unknown")
                               if (modelData.coverage === "git-history-only")
                                 return root.colorForSlots(modelData.slots, "git-history-only")
                               var n = (modelData.observedSlots !== undefined) ? modelData.observedSlots : (modelData.slots || 0)
@@ -426,6 +434,8 @@ Panel {
                                 visible: parent.containsMouse && modelData.inRange
                                 text: {
                                   var cov = modelData.coverage || ""
+                                  if (cov === "unknown")
+                                    return "not monitored yet · " + Heatmap.prettyDate(modelData.date)
                                   if (cov === "git-history-only") {
                                     var c = modelData.commits || 0
                                     return (c ? (c + " commit" + (c === 1 ? "" : "s") + " · ") : "") + "git history only · " + Heatmap.prettyDate(modelData.date)

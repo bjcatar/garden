@@ -45,7 +45,7 @@ Default watch: `~/Projects`. Add/remove folders in the panel. `$HOME` is rejecte
 | File save | Source-ish files under a watched folder (skip `node_modules`, `.git`, venvs, …). Counted from **mtime samples**, not each keystroke. Untracked files in a git repo count if git would not ignore them. |
 | Git commit | Author email matches yours, local time, subject not `vault backup:`. **Pushed commits still count.** |
 
-**Hours ≠ commit count.** The headline counts lit half-hours, not how many times you saved.
+**Hours ≠ commit count.** The headline counts **observed** half-hours on this PC (file changes). Git-only history lights pale tiles and does not add to “hours here.”
 
 Agent token totals are **not** squares and are not shown in the panel.
 
