@@ -293,6 +293,15 @@ Panel {
           }
 
           Text {
+            width: parent.width - parent.leftPadding - parent.rightPadding
+            text: "Hours are half-hours you showed up — six commits in one window is still 0.5h, not a busy GitHub day."
+            color: root.dim
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
+          Text {
             visible: !!(root.snapshot.topModel && root.snapshot.topModel.label)
             width: parent.width - parent.leftPadding - parent.rightPadding
             text: {

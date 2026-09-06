@@ -2,7 +2,7 @@
 
 A private year of **coding on this Omarchy machine**.
 
-Not GitHub.com. Not the Agents token meter. A square is a half-hour when something actually changed in a folder you chose — a file save, or a git commit **you** authored (including ones you already pushed). Empty tiles are the bed, not a score.
+Not GitHub.com. Not the Agents token meter. A square is a **half-hour you showed up** in a folder you chose — a file save, or a git commit **you** authored (including ones you already pushed). Six commits in the same window still light **one** square (0.5h). Empty tiles are the bed, not a score.
 
 ## Install
 
@@ -48,6 +48,8 @@ Default watch: `~/Projects`. Add/remove folders in the panel. `$HOME` is rejecte
 |---|---|
 | File save | Source-ish files under a watched folder (skip `node_modules`, `.git`, venvs, …). Untracked files in a git repo count if git would not ignore them. |
 | Git commit | Author email matches yours, local time, subject not `vault backup:`. **Pushed commits still count.** |
+
+**Hours ≠ commit count.** The headline counts lit half-hours, not how many times you saved.
 
 Agent token totals are **not** squares. The panel may show a one-line “most used model” from Omarchy’s existing agent usage files — that is tokens, not hours.
 
