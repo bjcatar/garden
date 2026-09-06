@@ -6,7 +6,17 @@ Not GitHub.com. Not the Agents token meter. A square is a **half-hour you showed
 
 ## Install
 
-Until the public GitHub repo exists, from a checkout of this tree:
+```bash
+omarchy plugin add https://github.com/bjcatar/garden.git --enable --section right --after omarchy.agents
+python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --install-timer
+python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan
+```
+
+Click the sprout on the right of the bar (after Agents). That **scans**, then opens the year on **today**. Flick left for earlier months. Use **Refresh** in the panel if you want another scan right now.
+
+`--install-timer` copies the user systemd units and enables a 15-minute scan while the panel is closed. Opening the panel (or Refresh) scans now. No per-monitor QML timer. The timer assumes the plugin lives at `~/.config/omarchy/plugins/bjcatar.garden`.
+
+From a local checkout instead of GitHub:
 
 ```bash
 rsync -a --delete --exclude .git --exclude .hermes --exclude extras --exclude tests --exclude __pycache__ \
@@ -17,20 +27,6 @@ python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --install-timer
 python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan
 omarchy-shell shell rescanPlugins
 ```
-
-Then click the sprout on the right of the bar (after Agents). That **scans**, then opens the year on **today**. Flick left for earlier months. Use **Refresh** in the panel if you want another scan right now.
-
-When `https://github.com/bjcatar/garden` is public:
-
-```bash
-omarchy plugin add https://github.com/bjcatar/garden.git --enable --section right --after omarchy.agents
-python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --install-timer
-python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan
-```
-
-`--install-timer` copies the user systemd units and enables a 15-minute scan while the panel is closed. Opening the panel (or Refresh) scans now. No per-monitor QML timer.
-
-The timer assumes the plugin lives at `~/.config/omarchy/plugins/bjcatar.garden`.
 
 ## Bar
 

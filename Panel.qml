@@ -38,6 +38,9 @@ Panel {
   }
 
   readonly property string todayIso: {
+    var _ = dataRev
+    if (snapshot.today && snapshot.today.date) return snapshot.today.date
+    if (snapshot.range && snapshot.range.end) return snapshot.range.end
     var n = new Date()
     return n.getFullYear() + "-" + Heatmap.pad2(n.getMonth() + 1) + "-" + Heatmap.pad2(n.getDate())
   }
@@ -80,7 +83,7 @@ Panel {
 
   function scanBin() {
     var url = Qt.resolvedUrl("bin/garden-scan").toString()
-    return url.replace(/^file:\/\//, "")
+    return decodeURIComponent(url.replace(/^file:\/\//, ""))
   }
 
   function refresh() {
@@ -174,10 +177,6 @@ Panel {
     }
   }
 
-  Component.onCompleted: Qt.callLater(function() {
-    if (!root.firstScanDone) root.maybeFirstScan(true)
-  })
-
   FileView {
     id: settingsFile
     path: Quickshell.env("HOME") + "/.local/state/omarchy/garden/settings.json"
@@ -193,8 +192,8 @@ Panel {
   Process {
     id: scanProc
     command: ["python3", root.scanBin()]
-    onExited: function() {
-      root.scanHint = ""
+    onExited: function(code) {
+      root.scanHint = code === 0 ? "" : "Scan failed (exit " + code + ")."
       dataFile.reload()
       settingsFile.reload()
     }
@@ -204,7 +203,7 @@ Panel {
     id: addProc
     onExited: function(code) {
       root.rootDraft = ""
-      root.scanHint = code === 0 ? "" : "That folder was rejected (must be inside your home, not $HOME itself)."
+      root.scanHint = code === 0 ? "" : "That folder was rejected (must be inside your home, not your home directory itself)."
       root.refresh()
     }
   }
@@ -411,8 +410,6 @@ Panel {
                             radius: 2
                             color: {
                               if (!modelData.inRange) return "transparent"
-                              if (modelData.date === root.todayIso && modelData.slots > 0)
-                                return Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 1)
                               return root.colorForSlots(modelData.slots, modelData.coverage)
                             }
                             border.width: modelData.date === root.todayIso ? 2 : (root.selectedDate === modelData.date ? 1 : 0)

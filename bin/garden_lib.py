@@ -128,6 +128,13 @@ def timestamp_slot(ts: float, slot_minutes: int = SLOT_MINUTES) -> tuple:
     return event_slot(day, local.hour, local.minute, slot_minutes=slot_minutes)
 
 
+def file_since_ts(last_sample: float, midnight: float) -> float:
+    """Never jump to midnight if we already sampled yesterday evening."""
+    if last_sample > 0:
+        return float(last_sample)
+    return float(midnight)
+
+
 def is_code_file(path: Path) -> bool:
     return path.suffix.lower() in CODE_SUFFIXES
 

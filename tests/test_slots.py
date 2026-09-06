@@ -53,6 +53,12 @@ class SlotMathTests(unittest.TestCase):
         self.assertEqual(g.hours_active(6), 3.0)
         self.assertEqual(g.hours_active(1), 0.5)
 
+    def test_file_since_keeps_last_sample_across_midnight(self):
+        last = 1_700_000_000.0
+        midnight = last + 4000
+        self.assertEqual(g.file_since_ts(last, midnight), last)
+        self.assertEqual(g.file_since_ts(0, midnight), midnight)
+
 
 class SettingsTests(unittest.TestCase):
     def test_empty_roots_do_not_fall_back_to_documents(self):

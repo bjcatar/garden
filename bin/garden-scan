@@ -133,38 +133,38 @@ def git_commit_events(repo: Path, settings: Dict[str, Any], since: str) -> List[
     pattern = settings.get("ignoreSubject") or g.DEFAULT_IGNORE_SUBJECT
     events: List[Dict[str, Any]] = []
     seen: Set[str] = set()
-    for email in emails:
-        text = _git(repo, [
-            "log",
-            "--author", email,
-            "--since", since,
-            "--pretty=format:%H\t%ad\t%s",
-            "--date=format-local:%Y-%m-%d %H:%M:%S",
-        ])
-        for line in text.splitlines():
-            parts = line.split("\t", 2)
-            if len(parts) < 3:
-                continue
-            full_hash, stamp, subject = parts
-            if full_hash in seen:
-                continue
-            seen.add(full_hash)
-            if g.ignore_subject(subject, pattern):
-                continue
-            try:
-                local = datetime.strptime(stamp.strip(), "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                continue
-            day = local.strftime("%Y-%m-%d")
-            slot = g.event_slot(day, local.hour, local.minute)
-            events.append({
-                "type": "git",
-                "day": day,
-                "slot": slot[1],
-                "hash": full_hash[:12],
-                "subject": subject,
-                "repo": repo_label(repo),
-            })
+    text = _git(repo, [
+        "log",
+        "--since", since,
+        "--pretty=format:%H%x09%ae%x09%ad%x09%s",
+        "--date=format-local:%Y-%m-%d %H:%M:%S",
+    ])
+    for line in text.splitlines():
+        parts = line.split("\t", 3)
+        if len(parts) < 4:
+            continue
+        full_hash, email, stamp, subject = parts
+        if full_hash in seen:
+            continue
+        seen.add(full_hash)
+        if not g.author_ok(email, emails):
+            continue
+        if g.ignore_subject(subject, pattern):
+            continue
+        try:
+            local = datetime.strptime(stamp.strip(), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+        day = local.strftime("%Y-%m-%d")
+        slot = g.event_slot(day, local.hour, local.minute)
+        events.append({
+            "type": "git",
+            "day": day,
+            "slot": slot[1],
+            "hash": full_hash[:12],
+            "subject": subject,
+            "repo": repo_label(repo),
+        })
     return events
 
 
@@ -177,6 +177,8 @@ def file_events(repo: Path, since_ts: float) -> List[Dict[str, Any]]:
         if not rel:
             continue
         path = repo / rel
+        if not g.is_code_file(path):
+            continue
         try:
             st = path.lstat()
         except OSError:
@@ -204,6 +206,14 @@ def file_events_dir(root: Path, since_ts: float) -> List[Dict[str, Any]]:
         return events
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         current = Path(dirpath)
+        try:
+            depth = len(current.relative_to(root).parts)
+        except ValueError:
+            dirnames[:] = []
+            continue
+        if depth > MAX_DEPTH:
+            dirnames[:] = []
+            continue
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIR_NAMES]
         if (current / ".git").exists() and current != root:
             dirnames[:] = []
@@ -441,13 +451,7 @@ def scan() -> Dict[str, Any]:
         state["firstSampleAt"] = now
         first = now
     midnight = datetime.combine(date.today(), datetime.min.time()).timestamp()
-    catchup_day = state.get("fileCatchupDay")
-    today_iso = date.today().isoformat()
-    if catchup_day != today_iso:
-        file_since = midnight
-        state["fileCatchupDay"] = today_iso
-    else:
-        file_since = last if last > 0 else midnight
+    file_since = g.file_since_ts(last, midnight)
 
     repos = discover_repos(settings.get("roots") or [])
     exclude = settings.get("excludeRepos") or []
@@ -493,7 +497,7 @@ def scan() -> Dict[str, Any]:
 
     append_ledger(new_events)
     state["lastSampleAt"] = now
-    state["seenGit"] = list(seen_set)[-4000:]
+    state["seenGit"] = list(seen_set)
     state["agentCounts"] = agent_counts
     save_state(state)
     snap = build_heatmap(settings, state, repos)
@@ -558,8 +562,15 @@ def _default_user_unit_dir() -> Path:
     return Path.home() / ".config/systemd/user"
 
 
-def _systemctl_user(*args: str) -> None:
-    subprocess.run(["systemctl", "--user", *args], check=False, capture_output=True, text=True, timeout=20)
+def _systemctl_user(*args: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", *args],
+            capture_output=True, text=True, timeout=20, check=False,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+    return result.returncode == 0
 
 
 def install_timer(dest: Optional[Path] = None, run_systemctl: bool = True) -> int:
@@ -573,8 +584,12 @@ def install_timer(dest: Optional[Path] = None, run_systemctl: bool = True) -> in
             return 1
         (dest_dir / name).write_text(body.read_text(encoding="utf-8"), encoding="utf-8")
     if run_systemctl:
-        _systemctl_user("daemon-reload")
-        _systemctl_user("enable", "--now", "garden-scan.timer")
+        if not _systemctl_user("daemon-reload"):
+            print("systemctl-failed", "daemon-reload")
+            return 1
+        if not _systemctl_user("enable", "--now", "garden-scan.timer"):
+            print("systemctl-failed", "enable")
+            return 1
     print("ok", str(dest_dir))
     return 0
 

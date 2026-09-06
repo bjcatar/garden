@@ -89,6 +89,16 @@ class GitCommitSignalTests(unittest.TestCase):
             events = scan.git_commit_events(repo, settings, "2000-01-01")
             self.assertEqual(events, [])
 
+    def test_author_substring_does_not_match(self):
+        with tempfile.TemporaryDirectory() as raw:
+            repo = init_repo(Path(raw) / "work", email="andev@x.com")
+            (repo / "a.py").write_text("x\n", encoding="utf-8")
+            git(repo, "add", "a.py")
+            git(repo, "commit", "-m", "not a substring hit")
+            settings = g.normalize_settings({"authorEmails": ["dev@x.com"]})
+            events = scan.git_commit_events(repo, settings, "2000-01-01")
+            self.assertEqual(events, [])
+
 
 class FileSignalTests(unittest.TestCase):
     def test_non_git_dir_counts_source_not_node_modules(self):
@@ -120,6 +130,18 @@ class FileSignalTests(unittest.TestCase):
             self.assertIn("sketch.py", paths)
             self.assertIn("tracked.py", paths)
             self.assertFalse(any("node_modules" in p for p in paths), paths)
+
+    def test_png_in_git_repo_does_not_count(self):
+        with tempfile.TemporaryDirectory() as raw:
+            repo = init_repo(Path(raw) / "work")
+            (repo / "a.py").write_text("x\n", encoding="utf-8")
+            (repo / "shot.png").write_bytes(b"\x89PNG\r\n")
+            git(repo, "add", "a.py", "shot.png")
+            git(repo, "commit", "-m", "assets")
+            events = scan.file_events(repo, since_ts=0)
+            paths = {e["path"] for e in events}
+            self.assertIn("a.py", paths)
+            self.assertNotIn("shot.png", paths)
 
 
 if __name__ == "__main__":
