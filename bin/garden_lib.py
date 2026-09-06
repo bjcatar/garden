@@ -9,6 +9,13 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 SLOT_MINUTES = 30
 SLOTS_PER_DAY = 24 * 60 // SLOT_MINUTES  # 48
+MAX_FILE_BYTES = 2 * 1024 * 1024
+CODE_SUFFIXES = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".qml", ".rs", ".go", ".c", ".h", ".cpp",
+    ".java", ".kt", ".rb", ".php", ".swift", ".cs", ".sh", ".zsh", ".bash", ".md",
+    ".json", ".toml", ".yml", ".yaml", ".css", ".html", ".vue", ".svelte", ".sql",
+    ".graphql",
+}
 DEFAULT_IGNORE_SUBJECT = r"^vault backup:"
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "roots": ["~/Projects"],
@@ -119,3 +126,7 @@ def timestamp_slot(ts: float, slot_minutes: int = SLOT_MINUTES) -> tuple:
     local = datetime.fromtimestamp(ts)
     day = local.strftime("%Y-%m-%d")
     return event_slot(day, local.hour, local.minute, slot_minutes=slot_minutes)
+
+
+def is_code_file(path: Path) -> bool:
+    return path.suffix.lower() in CODE_SUFFIXES

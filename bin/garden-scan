@@ -135,9 +135,9 @@ def git_commit_events(repo: Path, settings: Dict[str, Any], since: str) -> List[
     seen: Set[str] = set()
     for email in emails:
         text = _git(repo, [
-            "log", "--branches", "--not", "--remotes",
-            "--since", since,
+            "log",
             "--author", email,
+            "--since", since,
             "--pretty=format:%H\t%ad\t%s",
             "--date=format-local:%Y-%m-%d %H:%M:%S",
         ])
@@ -169,7 +169,7 @@ def git_commit_events(repo: Path, settings: Dict[str, Any], since: str) -> List[
 
 
 def file_events(repo: Path, since_ts: float) -> List[Dict[str, Any]]:
-    listing = _git(repo, ["ls-files", "-z"], timeout=20)
+    listing = _git(repo, ["ls-files", "-oc", "--exclude-standard", "-z"], timeout=20)
     if not listing:
         return []
     events: List[Dict[str, Any]] = []
@@ -178,12 +178,14 @@ def file_events(repo: Path, since_ts: float) -> List[Dict[str, Any]]:
             continue
         path = repo / rel
         try:
-            mtime = path.lstat().st_mtime
+            st = path.lstat()
         except OSError:
             continue
-        if mtime < since_ts:
+        if st.st_size > g.MAX_FILE_BYTES:
             continue
-        day, index = g.timestamp_slot(mtime)
+        if st.st_mtime < since_ts:
+            continue
+        day, index = g.timestamp_slot(st.st_mtime)
         events.append({
             "type": "file",
             "day": day,
@@ -191,6 +193,45 @@ def file_events(repo: Path, since_ts: float) -> List[Dict[str, Any]]:
             "repo": repo_label(repo),
             "path": rel,
         })
+    return events
+
+
+def file_events_dir(root: Path, since_ts: float) -> List[Dict[str, Any]]:
+    events: List[Dict[str, Any]] = []
+    try:
+        root = root.resolve()
+    except OSError:
+        return events
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        current = Path(dirpath)
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIR_NAMES]
+        if (current / ".git").exists() and current != root:
+            dirnames[:] = []
+            continue
+        for name in filenames:
+            path = current / name
+            if not g.is_code_file(path):
+                continue
+            try:
+                st = path.lstat()
+            except OSError:
+                continue
+            if st.st_size > g.MAX_FILE_BYTES:
+                continue
+            if st.st_mtime < since_ts:
+                continue
+            try:
+                rel = str(path.relative_to(root))
+            except ValueError:
+                continue
+            day, index = g.timestamp_slot(st.st_mtime)
+            events.append({
+                "type": "file",
+                "day": day,
+                "slot": index,
+                "repo": repo_label(root),
+                "path": rel,
+            })
     return events
 
 
@@ -409,6 +450,7 @@ def scan() -> Dict[str, Any]:
     exclude = settings.get("excludeRepos") or []
     events: List[Dict[str, Any]] = []
     since = (date.today() - timedelta(days=364)).isoformat()
+    repo_keys = {str(p.resolve()) for p in repos}
 
     for repo in repos:
         if muted(repo, exclude):
@@ -417,6 +459,15 @@ def scan() -> Dict[str, Any]:
             events.extend(git_commit_events(repo, settings, since))
         if settings.get("sources", {}).get("files", True):
             events.extend(file_events(repo, file_since))
+
+    if settings.get("sources", {}).get("files", True):
+        for raw in settings.get("roots") or []:
+            if not g.validate_root(raw):
+                continue
+            root = Path(raw).expanduser().resolve()
+            if str(root) in repo_keys:
+                continue
+            events.extend(file_events_dir(root, file_since))
 
     agent_counts = state.get("agentCounts") or {}
     if settings.get("sources", {}).get("agents"):

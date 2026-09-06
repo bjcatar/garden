@@ -4,7 +4,7 @@ A private year of **coding on this Omarchy machine**.
 
 Not GitHub.com. Not the Agents token meter. A square is a half-hour when something actually changed in a folder you chose — a file save in a watched git repo, or a git commit **you** authored. Empty tiles are the bed, not a score. Days before Garden started watching are not a fake empty GitHub year of “you did nothing.”
 
-This is **0.2.0**. First-run timer install and non-git folders land in later waves.
+This is **0.2.0**. Timer install (`--install-timer`) lands in a later wave.
 
 ## Install
 
@@ -43,14 +43,14 @@ One themed Nerd Font sprout, same slot as Bluetooth. Hover is hours built **here
 
 Default watch: `~/Projects`. Add/remove folders in the panel. `$HOME` is rejected. `~/Documents` is not watched by default (vault backup crons).
 
-**Today’s scanner only discovers git repos** under those folders. Untracked files and non-git directories are not counted yet.
+**A folder does not need to be a git repo.** Nested git repos still count commits.
 
-## What lights a square (today)
+## What lights a square
 
 | Signal | Lights a 30-minute slot |
 |---|---|
-| File save | Tracked files (`git ls-files`) in a watched repo |
-| Git commit | Author email matches yours, local time, subject not `vault backup:` |
+| File save | Source-ish files under a watched folder (skip `node_modules`, `.git`, venvs, …). Untracked files in a git repo count if git would not ignore them. |
+| Git commit | Author email matches yours, local time, subject not `vault backup:`. **Pushed commits still count.** |
 
 Agent token totals are **not** squares. The panel may show a one-line “most used model” from Omarchy’s existing agent usage files — that is tokens, not hours.
 
