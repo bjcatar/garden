@@ -274,6 +274,16 @@ Panel {
             wrapMode: Text.WordWrap
           }
 
+          Text {
+            visible: !!(root.snapshot.review && root.snapshot.review.sentence)
+            width: parent.width - parent.leftPadding - parent.rightPadding
+            text: (root.snapshot.review && root.snapshot.review.sentence) ? root.snapshot.review.sentence : ""
+            color: root.dim
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
           Column {
             spacing: Style.space(4)
             width: parent.width - parent.leftPadding - parent.rightPadding

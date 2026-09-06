@@ -410,6 +410,8 @@ def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[P
     today_row = days_out.get(today_iso) or {"slots": 0, "commits": 0, "files": 0, "agents": 0, "repos": [], "coverage": "observed"}
     total_slots = sum(int(v.get("slots") or 0) for v in days_out.values())
     active_days = sum(1 for v in days_out.values() if int(v.get("slots") or 0) > 0)
+    review_rows = [{"day": iso, "slots": bucket["slots"]} for iso, bucket in buckets.items()]
+    review = g.collect_review(review_rows, today)
     return {
         "generatedAt": datetime.now().isoformat(timespec="seconds"),
         "range": {"start": start.isoformat(), "end": today_iso},
@@ -421,6 +423,7 @@ def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[P
         "repos": [{"path": str(p), "name": p.name, "label": repo_label(p), "muted": muted(p, settings.get("excludeRepos") or [])} for p in repos],
         "sources": settings.get("sources"),
         "slotMinutes": settings.get("slotMinutes") or 30,
+        "review": review,
         **collect_models(),
     }
 
