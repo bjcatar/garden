@@ -12,7 +12,9 @@ python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --install-timer
 python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan
 ```
 
-Click the sprout on the right of the bar (after Agents). That **scans**, then opens the year on **today**. Click a day for a 48-slot strip and which repos lit each half-hour. Flick left for earlier months. Use **Refresh** in the panel if you want another scan right now. **Enable background scan** if the 15-minute timer is off.
+Click the sprout on the right of the bar (after Agents). That opens the year on **today**, then scans once the shell releases its initial keyboard grab. Click a day for a 48-slot strip and which repos lit each half-hour. Flick left for earlier months. Use **Refresh** in the panel if you want another scan right now. **Enable background scan** if the 15-minute timer is off.
+
+Escape closes the popup, including while editing a folder. Clicking the sprout again or outside the card also closes it. The folder field takes keyboard focus when clicked.
 
 `--install-timer` copies the user systemd units and enables a 15-minute scan while the panel is closed. Opening the panel (or Refresh) scans now. No per-monitor QML timer. The timer assumes the plugin lives at `~/.config/omarchy/plugins/bjcatar.garden`.
 
@@ -78,3 +80,11 @@ systemctl --user daemon-reload
 ## License
 
 MIT
+
+## Popup regression check
+
+Run `bash tests/test_panel_lifecycle.sh` in an Omarchy Wayland session. It loads
+the real Garden panel and `PluginBarApi` in a separate Quickshell process while
+holding popup surfaces closed. It checks open, toggle, key-catcher and outside-click
+close routes, and dismissal when the bar setter throws. It does not simulate
+physical keyboard or pointer input.

@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -27,18 +26,24 @@ Panel {
   property var weeks: []
   property var monthLabels: []
   property string selectedDate: ""
-  property string rootDraft: ""
   property string scanHint: ""
   property bool firstScanDone: false
   property double lastScanAt: 0
 
   property bool pinToday: false
 
-  onOpenedChanged: if (opened) {
-    pinToday = true
-    selectedDate = todayIso
-    if (yearFlick) yearFlick.pendingToday = true
-    Qt.callLater(function() { if (yearFlick) yearFlick.scrollToToday() })
+  onOpenedChanged: {
+    if (opened) {
+      pinToday = true
+      selectedDate = todayIso
+      if (yearFlick) yearFlick.pendingToday = true
+      Qt.callLater(function() {
+        if (!root.opened) return
+        if (yearFlick) yearFlick.scrollToToday()
+      })
+    } else if (rootField) {
+      rootField.focus = false
+    }
   }
 
   readonly property string todayIso: {
@@ -117,7 +122,7 @@ Panel {
   }
 
   function addRoot() {
-    var path = rootDraft.trim()
+    var path = rootField ? rootField.text.trim() : ""
     if (!path) return
     addProc.command = ["python3", scanBin(), "--add-root", path]
     addProc.running = true
@@ -130,18 +135,15 @@ Panel {
 
   function open() {
     pinToday = true
-    root.scanIfStale()
-    if (dataFile) dataFile.reload()
-    if (settingsFile) settingsFile.reload()
+    setCenterHoverRevealSuppressed(true)
     root.controller.show()
-    Qt.callLater(function() {
-      if (root.opened) setCenterHoverRevealSuppressed(true)
-    })
   }
 
   function close() {
-    setCenterHoverRevealSuppressed(false)
+    // Release the input surfaces before doing optional bar/field cleanup.
     root.controller.hide()
+    if (rootField) rootField.focus = false
+    setCenterHoverRevealSuppressed(false)
   }
 
   function toggle() {
@@ -156,8 +158,14 @@ Panel {
   }
 
   function setCenterHoverRevealSuppressed(value) {
-    if (root.bar && "centerHoverRevealSuppressed" in root.bar)
-      root.bar.centerHoverRevealSuppressed = value
+    // Installed plugins receive PluginBarApi, whose scalar state is read-only.
+    // Use its public setter; cosmetic failures must never block dismissal.
+    try {
+      if (root.bar && typeof root.bar.setCenterHoverRevealSuppressed === "function")
+        root.bar.setCenterHoverRevealSuppressed(value)
+    } catch (e) {
+      console.warn("garden", "Could not update bar hover state:", e)
+    }
   }
 
   function moveDay(delta) {
@@ -214,9 +222,10 @@ Panel {
         root.scanHint = "That folder was rejected (must be inside your home, not your home directory itself)."
         return
       }
-      root.rootDraft = ""
+      if (rootField) rootField.text = ""
       root.scanHint = ""
       root.refresh()
+      if (root.opened && rootField.activeFocus) keyCatcher.forceActiveFocus()
     }
   }
 
@@ -243,12 +252,21 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
+    // KeyboardPanel owns initial item focus and its 75 ms Exclusive prime.
+    // Defer automatic scan work until the shell has released that grab.
+    onFocusPrimedChanged: {
+      if (open && focusPrimed) {
+        settingsFile.reload()
+        root.scanIfStale()
+      }
+    }
     contentWidth: panel.fittedContentWidth(Style.space(680))
     contentHeight: panel.fittedContentHeight(body.implicitHeight, Style.space(620))
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      blocked: !!(rootField && rootField.activeFocus)
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onActivateRequested: root.refresh()
@@ -621,15 +639,19 @@ Panel {
           Row {
             spacing: Style.space(8)
             width: body.width - body.leftPadding - body.rightPadding
-            TextInput {
+            TextField {
               id: rootField
               width: parent.width - Style.space(72)
-              color: root.contentForeground
+              anchors.verticalCenter: parent.verticalCenter
+              placeholderText: "Folder to watch"
+              foreground: root.contentForeground
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
-              text: root.rootDraft
-              onTextChanged: root.rootDraft = text
-              Keys.onReturnPressed: root.addRoot()
+              horizontalPadding: Style.spacing.controlGap
+              verticalPadding: Style.spacing.controlPaddingY
+              activeFocusOnTab: false
+              onAccepted: root.addRoot()
+              Keys.onEscapePressed: root.close()
             }
             Text {
               text: "Add"
