@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "bjcatar.garden",
   "name": "Garden",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "author": "bjcatar",
   "license": "MIT",
   "description": "A private year of coding on this Omarchy machine. Squares are half-hours in folders you watch — not GitHub.com, not token usage.",
