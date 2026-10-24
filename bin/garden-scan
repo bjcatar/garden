@@ -61,18 +61,39 @@ def load_state() -> Dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def atomic_replace(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def save_state(state: Dict[str, Any]) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    atomic_replace(STATE_PATH, json.dumps(state, indent=2) + "\n")
+
+
+def _run_cmd(cmd: List[str], timeout: int) -> Tuple[Optional[int], str, Optional[str]]:
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        return None, "", "timeout"
+    except FileNotFoundError:
+        return None, "", "missing"
+    except OSError:
+        return None, "", "os"
+    return result.returncode, result.stdout or "", None
+
+
+def _git_run(repo: Optional[Path], args: List[str], timeout: int = GIT_TIMEOUT) -> Tuple[Optional[int], str, Optional[str]]:
+    cmd = ["git"] if repo is None else ["git", "-C", str(repo)]
+    return _run_cmd(cmd + args, timeout)
 
 
 def _git(repo: Optional[Path], args: List[str], timeout: int = GIT_TIMEOUT) -> str:
-    cmd = ["git"] if repo is None else ["git", "-C", str(repo)]
-    try:
-        result = subprocess.run(cmd + args, capture_output=True, text=True, timeout=timeout, check=False)
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+    code, stdout, failure = _git_run(repo, args, timeout)
+    if g.process_failed(code, failure):
         return ""
-    return result.stdout if result.returncode == 0 else ""
+    return stdout
 
 
 def _git_config(repo: Optional[Path], key: str) -> str:
@@ -126,20 +147,19 @@ def muted(repo: Path, exclude: List[str]) -> bool:
     return False
 
 
-def git_commit_events(repo: Path, settings: Dict[str, Any], since: str) -> List[Dict[str, Any]]:
-    emails = settings.get("authorEmails") or []
-    if not emails or not settings.get("sources", {}).get("git", True):
-        return []
-    pattern = settings.get("ignoreSubject") or g.DEFAULT_IGNORE_SUBJECT
-    events: List[Dict[str, Any]] = []
-    seen: Set[str] = set()
-    text = _git(repo, [
+def _git_log_args(since: str) -> List[str]:
+    return [
         "log",
         "--branches",
         "--since", since,
         "--pretty=format:%H%x09%ae%x09%ad%x09%s",
         "--date=format-local:%Y-%m-%d %H:%M:%S",
-    ])
+    ]
+
+
+def _parse_git_log(text: str, repo: Path, emails: List[str], pattern: str) -> List[Dict[str, Any]]:
+    events: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
     for line in text.splitlines():
         parts = line.split("\t", 3)
         if len(parts) < 4:
@@ -169,10 +189,18 @@ def git_commit_events(repo: Path, settings: Dict[str, Any], since: str) -> List[
     return events
 
 
-def file_events(repo: Path, since_ts: float) -> List[Dict[str, Any]]:
-    listing = _git(repo, ["ls-files", "-oc", "--exclude-standard", "-z"], timeout=20)
-    if not listing:
+def git_commit_events(repo: Path, settings: Dict[str, Any], since: str) -> List[Dict[str, Any]]:
+    emails = settings.get("authorEmails") or []
+    if not emails or not settings.get("sources", {}).get("git", True):
         return []
+    pattern = settings.get("ignoreSubject") or g.DEFAULT_IGNORE_SUBJECT
+    code, stdout, failure = _git_run(repo, _git_log_args(since))
+    if g.process_failed(code, failure):
+        return []
+    return _parse_git_log(stdout, repo, emails, pattern)
+
+
+def _parse_file_listing(listing: str, repo: Path, since_ts: float) -> List[Dict[str, Any]]:
     events: List[Dict[str, Any]] = []
     for rel in listing.split("\0"):
         if not rel:
@@ -197,6 +225,13 @@ def file_events(repo: Path, since_ts: float) -> List[Dict[str, Any]]:
             "path": rel,
         })
     return events
+
+
+def file_events(repo: Path, since_ts: float) -> List[Dict[str, Any]]:
+    code, stdout, failure = _git_run(repo, ["ls-files", "-oc", "--exclude-standard", "-z"], timeout=20)
+    if g.process_failed(code, failure):
+        return []
+    return _parse_file_listing(stdout, repo, since_ts)
 
 
 def file_events_dir(root: Path, since_ts: float) -> List[Dict[str, Any]]:
@@ -289,54 +324,22 @@ def append_ledger(events: List[Dict[str, Any]]) -> None:
             fh.write(json.dumps(event, separators=(",", ":")) + "\n")
 
 
-def load_ledger_slots(start: date) -> Dict[str, Dict[str, Any]]:
-    days: Dict[str, Dict[str, Any]] = {}
+def load_ledger() -> List[Dict[str, Any]]:
     if not LEDGER_PATH.is_file():
-        return days
-    start_iso = start.isoformat()
+        return []
     try:
         lines = LEDGER_PATH.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return days
+        return []
+    events: List[Dict[str, Any]] = []
     for line in lines:
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
-        day = event.get("day")
-        if not day or day < start_iso:
-            continue
-        bucket = days.setdefault(day, {
-            "slots": set(), "commits": 0, "files": 0, "agents": 0, "repos": set(),
-            "git_slots": set(), "obs_slots": set(), "file_paths": set(), "by_slot": {},
-        })
-        slot = event.get("slot")
-        if isinstance(slot, int):
-            bucket["slots"].add(slot)
-            info = bucket["by_slot"].setdefault(slot, {"git": 0, "file": 0, "repos": set()})
-            kind = event.get("type")
-            if kind == "git":
-                bucket["git_slots"].add(slot)
-                bucket["commits"] += 1
-                info["git"] += 1
-            elif kind == "file":
-                bucket["obs_slots"].add(slot)
-                path = event.get("path") or ""
-                if path:
-                    bucket["file_paths"].add(f"{event.get('repo') or ''}:{path}")
-                info["file"] += 1
-            elif kind == "agent":
-                bucket["obs_slots"].add(slot)
-                bucket["agents"] += 1
-            repo = event.get("repo")
-            if repo:
-                info["repos"].add(repo)
-        repo = event.get("repo")
-        if repo:
-            bucket["repos"].add(repo)
-    for bucket in days.values():
-        bucket["files"] = len(bucket.get("file_paths") or [])
-    return days
+        if isinstance(event, dict):
+            events.append(event)
+    return events
 
 
 def load_ledger_events(start: date) -> List[Dict[str, Any]]:
@@ -373,62 +376,80 @@ def timer_enabled() -> bool:
     return result.returncode == 0 and "enabled" in (result.stdout or "")
 
 
-def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[Path]) -> Dict[str, Any]:
-    today = date.today()
-    first = state.get("firstSampleAt")
-    first_day = None
-    if isinstance(first, (int, float)):
-        first_day = datetime.fromtimestamp(first).date()
-    start = today - timedelta(days=364)
-    buckets = load_ledger_slots(start)
+def _active_repos(repos: List[Path], exclude: List[str]) -> List[Path]:
+    return [repo for repo in repos if not muted(repo, exclude)]
 
-    days_out: Dict[str, Any] = {}
-    cursor = start
-    while cursor <= today:
-        iso = cursor.isoformat()
-        bucket = buckets.get(iso)
-        if bucket:
-            slots = bucket["slots"]
-            obs = bucket["obs_slots"]
-            git_only = bool(bucket["git_slots"]) and not obs
-            coverage = "git-history-only" if git_only else "observed"
-            by_slot = {}
-            for idx, info in (bucket.get("by_slot") or {}).items():
-                by_slot[str(idx)] = {
-                    "git": info.get("git") or 0,
-                    "file": info.get("file") or 0,
-                    "repos": sorted(info.get("repos") or []),
-                }
-            days_out[iso] = {
-                "slots": len(slots),
-                "commits": bucket["commits"],
-                "files": bucket["files"],
-                "agents": bucket["agents"],
-                "repos": sorted(bucket["repos"]),
-                "coverage": coverage,
-                "slotIndexes": sorted(slots),
-                "bySlot": by_slot,
-                "observedSlots": len(obs),
-            }
+
+def _file_probe(settings: Dict[str, Any], repos: List[Path], since_ts: float) -> g.Probe:
+    if not settings.get("sources", {}).get("files", True):
+        return g.ProbeOff()
+    exclude = settings.get("excludeRepos") or []
+    parts: List[g.ProbeOk | g.ProbeFailed] = []
+    for repo in _active_repos(repos, exclude):
+        code, stdout, failure = _git_run(repo, ["ls-files", "-oc", "--exclude-standard", "-z"], timeout=20)
+        if g.process_failed(code, failure):
+            parts.append(g.ProbeFailed(events=()))
         else:
-            before_watch = first_day is not None and cursor < first_day
-            days_out[iso] = {
-                "slots": 0, "commits": 0, "files": 0, "agents": 0, "repos": [],
-                "coverage": "unknown" if before_watch else "observed",
-                "slotIndexes": [], "bySlot": {}, "observedSlots": 0,
-            }
-        cursor += timedelta(days=1)
-
-    today_iso = today.isoformat()
-    today_row = days_out.get(today_iso) or {"slots": 0, "commits": 0, "files": 0, "agents": 0, "repos": [], "coverage": "observed"}
-    total_slots = sum(int(v.get("slots") or 0) for v in days_out.values())
-    active_days = sum(1 for v in days_out.values() if int(v.get("slots") or 0) > 0)
-    review_rows = []
-    for iso, bucket in buckets.items():
-        if bucket.get("git_slots") and not bucket.get("obs_slots"):
+            parts.append(g.ProbeOk(events=tuple(_parse_file_listing(stdout, repo, since_ts))))
+    repo_keys = {str(repo.resolve()) for repo in repos}
+    for raw in settings.get("roots") or []:
+        if not g.validate_root(raw):
             continue
-        review_rows.append({"day": iso, "slots": bucket.get("obs_slots") or bucket.get("slots") or set()})
-    review = g.collect_review(review_rows, today)
+        try:
+            root = Path(raw).expanduser().resolve()
+        except OSError:
+            parts.append(g.ProbeFailed(events=()))
+            continue
+        if str(root) in repo_keys:
+            continue
+        parts.append(g.ProbeOk(events=tuple(file_events_dir(root, since_ts))))
+    if not parts:
+        return g.ProbeOff()
+    return g.combine_file_probes(parts)
+
+
+def _git_probe(settings: Dict[str, Any], repos: List[Path], today: date) -> g.Probe:
+    emails = settings.get("authorEmails") or []
+    if not emails or not settings.get("sources", {}).get("git", True):
+        return g.ProbeOff()
+    active = _active_repos(repos, settings.get("excludeRepos") or [])
+    if not active:
+        return g.ProbeOff()
+    since = (today - timedelta(days=364)).isoformat()
+    pattern = settings.get("ignoreSubject") or g.DEFAULT_IGNORE_SUBJECT
+    ok = True
+    events: List[Dict[str, Any]] = []
+    for repo in active:
+        code, stdout, failure = _git_run(repo, _git_log_args(since))
+        if g.process_failed(code, failure):
+            ok = False
+            continue
+        events.extend(_parse_git_log(stdout, repo, emails, pattern))
+    if ok:
+        return g.ProbeOk(events=tuple(events))
+    return g.ProbeFailed(events=tuple(events))
+
+
+def build_heatmap(
+    settings: Dict[str, Any],
+    state: g.ScanState,
+    repos: List[Path],
+    events: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    today = date.today()
+    start = today - timedelta(days=364)
+    covered = g.cover_days(events, state, start, today)
+    days_out = {iso: day.as_heatmap_day() for iso, day in covered.items()}
+    today_iso = today.isoformat()
+    today_row = days_out.get(today_iso) or {}
+    total_slots = sum(int(row.get("slots") or 0) for row in days_out.values())
+    active_days = sum(1 for row in days_out.values() if int(row.get("slots") or 0) > 0)
+    review_rows = [
+        {"day": day.day, "slots": set(day.observed_slot_indexes)}
+        for day in covered.values()
+        if day.observed_slot_indexes
+    ]
+    enabled = timer_enabled()
     coverage = {
         iso: row.get("coverage")
         for iso, row in days_out.items()
@@ -446,9 +467,10 @@ def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[P
         "repos": [{"path": str(p), "name": p.name, "label": repo_label(p), "muted": muted(p, settings.get("excludeRepos") or [])} for p in repos],
         "sources": settings.get("sources"),
         "slotMinutes": settings.get("slotMinutes") or 30,
-        "review": review,
+        "review": g.collect_review(review_rows, today),
         "activity": activity,
-        "timerEnabled": timer_enabled(),
+        "scanStatus": g.scan_status_text(state, enabled),
+        "timerEnabled": enabled,
     }
 
 
@@ -457,67 +479,27 @@ def scan() -> Dict[str, Any]:
     settings = load_settings()
     if not SETTINGS_PATH.is_file():
         save_settings(settings)
-    state = load_state()
+    raw_state = load_state()
+    state = g.parse_scan_state(raw_state)
     now = time.time()
-    last = float(state.get("lastSampleAt") or 0)
-    first = state.get("firstSampleAt")
-    if not first:
-        state["firstSampleAt"] = now
-        first = now
-    midnight = datetime.combine(date.today(), datetime.min.time()).timestamp()
-    file_since = g.file_since_ts(last, midnight)
-
+    today = date.today()
+    midnight = datetime.combine(today, datetime.min.time()).timestamp()
+    file_since = g.file_since_ts(state.file_cursor, midnight)
     repos = discover_repos(settings.get("roots") or [])
-    exclude = settings.get("excludeRepos") or []
-    events: List[Dict[str, Any]] = []
-    since = (date.today() - timedelta(days=364)).isoformat()
-    repo_keys = {str(p.resolve()) for p in repos}
-
-    for repo in repos:
-        if muted(repo, exclude):
-            continue
-        if settings.get("sources", {}).get("git", True):
-            events.extend(git_commit_events(repo, settings, since))
-        if settings.get("sources", {}).get("files", True):
-            events.extend(file_events(repo, file_since))
-
-    if settings.get("sources", {}).get("files", True):
-        for raw in settings.get("roots") or []:
-            if not g.validate_root(raw):
-                continue
-            root = Path(raw).expanduser().resolve()
-            if str(root) in repo_keys:
-                continue
-            events.extend(file_events_dir(root, file_since))
-
-    agent_counts = state.get("agentCounts") or {}
+    files = _file_probe(settings, repos, file_since)
+    git = _git_probe(settings, repos, today)
     if settings.get("sources", {}).get("agents"):
-        extra, agent_counts = agent_events(state)
-        events.extend(extra)
+        rows, counts = agent_events(raw_state)
+        agents = g.ProbeOk(events=tuple(rows), agent_counts=counts)
     else:
-        agent_counts = {}
-
-    events = g.retain_events(events)
-
-    # Git log is historical; only append git events we have not stored.
-    seen_git = state.get("seenGit") or []
-    seen_set = set(seen_git)
-    new_events: List[Dict[str, Any]] = []
-    for event in events:
-        if event.get("type") == "git":
-            key = event.get("hash")
-            if key in seen_set:
-                continue
-            seen_set.add(key)
-        new_events.append(event)
-
-    append_ledger(new_events)
-    state["lastSampleAt"] = now
-    state["seenGit"] = list(seen_set)
-    state["agentCounts"] = agent_counts
-    save_state(state)
-    snap = build_heatmap(settings, state, repos)
-    HEATMAP_PATH.write_text(json.dumps(snap) + "\n", encoding="utf-8")
+        agents = g.ProbeOff()
+    ledger = load_ledger()
+    plan = g.plan_scan(state, ledger, files, git, agents, now, midnight)
+    kept = g.retain_events(list(plan.events_to_append))
+    append_ledger(kept)
+    save_state(plan.state.to_json())
+    snap = build_heatmap(settings, plan.state, repos, ledger + kept)
+    atomic_replace(HEATMAP_PATH, json.dumps(snap) + "\n")
     return snap
 
 
