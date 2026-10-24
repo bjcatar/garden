@@ -2,7 +2,7 @@
 
 A private year of **coding on this Omarchy machine**.
 
-Not GitHub.com. Not the Agents token meter. A square is a **half-hour with a file change** in a folder you chose, or a git commit **you** authored (pale tile if git-only). Six commits without a save still add **0h** to the headline. Empty tiles are the bed, not a score.
+Not GitHub.com. Not the Agents token meter. A square is a **half-hour with a file change** in a folder you chose, or a git commit **you** authored (pale tile if git-only). Six commits without a save still add nothing to the headline. A blank day is sampled only when a successful file walk covered that day. Until then, the day stays unmarked.
 
 ## Install
 
@@ -32,7 +32,7 @@ omarchy-shell shell rescanPlugins
 
 ## Bar
 
-One themed Nerd Font sprout, same slot as Bluetooth. Hover is hours built **here** today. Left-click scans (if it has been more than 30s) and opens the year. Middle-click scans even if the panel is already open.
+One themed Nerd Font sprout, same slot as Bluetooth. Hover is the sampled half-hours on this machine today. Left-click scans (if it has been more than 30s) and opens the year. Middle-click scans even if the panel is already open.
 
 ## Folders
 
@@ -47,7 +47,7 @@ Default watch: `~/Projects`. Add/remove folders in the panel. `$HOME` is rejecte
 | File save | Source-ish files under a watched folder (skip `node_modules`, `.git`, venvs, …). Counted from **mtime samples**, not each keystroke. Untracked files in a git repo count if git would not ignore them. |
 | Git commit | Author email matches yours, local time, subject not `vault backup:`. **Pushed commits still count.** |
 
-**Hours ≠ commit count.** The headline counts **observed** half-hours on this PC (file changes). Git-only history lights pale tiles and does not add to “hours here.”
+**Sampled half-hours.** The headline counts half-hours with a file change on this PC. Git-only history lights pale tiles and adds nothing to the headline. The settings line shows the last successful file walk, and whether the timer unit is enabled.
 
 Agent token totals are **not** squares and are not shown in the panel.
 
@@ -57,7 +57,8 @@ Agent token totals are **not** squares and are not shown in the panel.
 |---|---|
 | `~/.local/state/omarchy/garden/heatmap.json` | Derived calendar (widget reads this) |
 | `~/.local/state/omarchy/garden/settings.json` | Roots, mutes, emails |
-| `~/.local/state/omarchy/garden/ledger.jsonl` | Observed events |
+| `~/.local/state/omarchy/garden/ledger.jsonl` | File, git, and agent events |
+| `~/.local/state/omarchy/garden/state.json` | File-walk windows and the last scan |
 | `~/.config/systemd/user/garden-scan.{service,timer}` | 15-minute scan (from `--install-timer`) |
 
 ## Uninstall

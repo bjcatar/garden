@@ -157,6 +157,11 @@ Panel {
     if (row.coverage === "git-history-only") return 0
     return row.slots || 0
   }
+  readonly property string todayHeadline: {
+    var _ = dataRev
+    var today = snapshot.today
+    return (today && today.headline) ? today.headline : ""
+  }
   readonly property int totalSlots: snapshot.totalSlots || 0
   readonly property int activeDays: snapshot.activeDays || 0
   readonly property var selectedDay: (snapshot.days && selectedDate) ? snapshot.days[selectedDate] : null
@@ -407,6 +412,9 @@ Panel {
               width: parent.width - refreshBtn.implicitWidth - parent.spacing
               text: {
                 if (scanProc.running) return "Scanning this machine…"
+                var today = root.snapshot.today
+                var headline = today ? today.headline : ""
+                if (headline) return headline
                 var h = Heatmap.hoursActive(root.todaySlots)
                 if (h <= 0) return "This Omarchy box is waiting for you"
                 if (h === 0.5) return "You built a half hour here today"
@@ -785,12 +793,11 @@ Panel {
                             radius: 2
                             color: {
                               if (!modelData.inRange) return "transparent"
-                              if (modelData.coverage === "unknown")
+                              if (modelData.paint === "pale" || modelData.coverage === "git-history-only")
+                                return root.colorForSlots(modelData.slots || 0, "git-history-only")
+                              if (modelData.paint === "dim" || modelData.coverage === "unknown")
                                 return root.colorForSlots(0, "unknown")
-                              if (modelData.coverage === "git-history-only")
-                                return root.colorForSlots(modelData.slots, "git-history-only")
-                              var n = (modelData.observedSlots !== undefined) ? modelData.observedSlots : (modelData.slots || 0)
-                              return root.colorForSlots(n, "observed")
+                              return root.colorForSlots(modelData.observedSlots || 0, "observed")
                             }
                             border.width: modelData.date === root.todayIso ? 2 : (root.selectedDate === modelData.date ? 1 : 0)
                             border.color: root.accent
@@ -804,6 +811,7 @@ Panel {
                               PanelToolTip {
                                 visible: parent.containsMouse && modelData.inRange
                                 text: {
+                                  if (modelData.label) return modelData.label
                                   var cov = modelData.coverage || ""
                                   if (cov === "unknown")
                                     return "not monitored yet · " + Heatmap.prettyDate(modelData.date)
@@ -868,6 +876,7 @@ Panel {
             text: {
               if (!root.selectedDate) return ""
               var d = root.selectedDay || {}
+              if (d.label) return d.label
               var bits = [Heatmap.prettyDate(root.selectedDate)]
               bits.push(Heatmap.hoursActive(d.observedSlots !== undefined ? d.observedSlots : (d.coverage === "git-history-only" ? 0 : (d.slots || 0))) + "h observed")
               if (d.commits) bits.push(d.commits + " commits")
@@ -1030,7 +1039,13 @@ Panel {
 
           Text {
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: snapshot.timerEnabled ? "Background scan is on (every 15 min)." : "Background scan is off."
+            text: {
+              var status = snapshot.scanStatus
+              if (status) return status
+              return snapshot.timerEnabled
+                ? "Background scan is on (every 15 min)."
+                : "Background scan is off."
+            }
             color: root.dim
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
