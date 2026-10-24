@@ -100,3 +100,38 @@ class MarketplaceBodyTests(unittest.TestCase):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertNotIn("systemctl", text)
         self.assertNotIn("systemd-run", text)
+
+    def test_workflow_calls_the_script_and_does_not_embed_the_form(self):
+        text = (ROOT / ".github/workflows/release-marketplace.yml").read_text(
+            encoding="utf-8"
+        )
+        for banned in (
+            "### Verification action",
+            "Verify and publish a newer upstream commit",
+            "I understand that only the exact target commit",
+            "_No response_",
+            "https://github.com/bjcatar/garden",
+        ):
+            self.assertNotIn(banned, text, banned)
+        for required in (
+            "open_marketplace_issue",
+            "default: false",
+            "MARKETPLACE_ISSUE_TOKEN",
+            "python3 -m unittest discover -s tests -q",
+            "tests/test_panel_lifecycle.sh",
+            "types: [published]",
+            "github.event_name == 'workflow_dispatch' && inputs.open_marketplace_issue == true",
+            "bash scripts/marketplace-update-body.sh",
+        ):
+            self.assertIn(required, text, required)
+
+    def test_runbook_fence_matches_the_script(self):
+        text = (ROOT / "docs/PUBLISH.md").read_text(encoding="utf-8")
+        marker = "```text\n### Verification action\n"
+        start = text.index(marker) + len("```text\n")
+        end = text.index("\n```", start)
+        fenced = text[start:end] + "\n"
+        proc = run(EXAMPLE_SHA)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(fenced, proc.stdout)
+        self.assertIn("docs/PUBLISH.md", (ROOT / "README.md").read_text(encoding="utf-8"))

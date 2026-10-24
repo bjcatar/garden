@@ -88,3 +88,7 @@ the real Garden panel and `PluginBarApi` in a separate Quickshell process while
 holding popup surfaces closed. It checks open, toggle, key-catcher and outside-click
 close routes, and dismissal when the bar setter throws. It does not simulate
 physical keyboard or pointer input.
+
+## Maintainers
+
+Release and marketplace update steps are in [Publish Garden](docs/PUBLISH.md).

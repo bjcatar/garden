@@ -1,0 +1,189 @@
+name: Release marketplace
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to check out, for example v0.2.4. Ignored when sha is set. A published release uses its own tag.
+        required: false
+        type: string
+        default: ""
+      sha:
+        description: Full 40-character commit to check out. Leave empty to use the tag, or the branch you selected for this run.
+        required: false
+        type: string
+        default: ""
+      open_marketplace_issue:
+        description: Open the Omarchy marketplace verification issue. Leave false to only prepare the body.
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Choose ref
+        id: ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_SHA: ${{ inputs.sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tag_re='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          if [ "$EVENT_NAME" = "release" ]; then
+            ref="$RELEASE_TAG"
+            check_tag="$RELEASE_TAG"
+          elif [ -n "$INPUT_SHA" ]; then
+            ref="$INPUT_SHA"
+            check_tag="$INPUT_TAG"
+          elif [ -n "$INPUT_TAG" ]; then
+            ref="$INPUT_TAG"
+            check_tag="$INPUT_TAG"
+          else
+            ref="$WORKFLOW_SHA"
+            check_tag=""
+          fi
+          if [ -n "${INPUT_SHA}" ] && ! printf '%s' "$INPUT_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+            printf '%s\n' "sha must be 40 hex characters." >&2
+            exit 1
+          fi
+          if [ -n "$check_tag" ] && ! printf '%s' "$check_tag" | grep -Eq "$tag_re"; then
+            printf '%s\n' "tag must look like vX.Y.Z." >&2
+            exit 1
+          fi
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+          printf 'check_tag=%s\n' "$check_tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Require tag and sha to be the same commit
+        if: github.event_name == 'workflow_dispatch' && inputs.tag != '' && inputs.sha != ''
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin "refs/tags/${INPUT_TAG}:refs/tags/${INPUT_TAG}"
+          got=$(git rev-parse "${INPUT_TAG}^{commit}")
+          want=$(printf '%s' "$INPUT_SHA" | tr '[:upper:]' '[:lower:]')
+          if [ "$got" != "$want" ]; then
+            printf 'tag %s points at %s, not %s\n' "$INPUT_TAG" "$got" "$want" >&2
+            exit 1
+          fi
+
+      - name: Validate manifest, README, LICENSE, and preview
+        env:
+          CHECK_TAG: ${{ steps.ref.outputs.check_tag }}
+        run: |
+          python3 - <<'PY'
+          import json, os, struct, sys
+          from pathlib import Path
+
+          root = Path(".")
+          manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+          if manifest.get("id") != "bjcatar.garden":
+              sys.exit("manifest id is not bjcatar.garden")
+          version = manifest.get("version")
+          if not isinstance(version, str) or version.strip() == "" or version != version.strip():
+              sys.exit("manifest version is empty")
+          parts = version.split(".")
+          if len(parts) != 3 or not all(part.isdigit() for part in parts):
+              sys.exit("manifest version is not X.Y.Z")
+          tag = os.environ.get("CHECK_TAG", "")
+          if tag and tag != f"v{version}":
+              sys.exit(f"tag {tag} does not match manifest version {version}")
+          readme = (root / "README.md").read_text(encoding="utf-8")
+          if "## Install" not in readme or "## Uninstall" not in readme:
+              sys.exit("README is missing Install or Uninstall")
+          license_path = root / "LICENSE"
+          if not license_path.is_file() or license_path.stat().st_size == 0:
+              sys.exit("LICENSE is missing or empty")
+          data = (root / "preview.png").read_bytes()
+          if len(data) > 50 * 1024 * 1024:
+              sys.exit("preview.png is larger than 50 MB")
+          if data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
+              sys.exit("preview.png is not a PNG")
+          width, height = struct.unpack(">II", data[16:24])
+          if width * height > 40_000_000:
+              sys.exit("preview.png is over 40 megapixels")
+          PY
+
+      - name: Python tests
+        run: python3 -m unittest discover -s tests -q
+
+      - name: Record the lifecycle skip
+        run: |
+          {
+            echo '### Lifecycle test'
+            echo
+            echo 'CI did not run `tests/test_panel_lifecycle.sh`.'
+            echo 'That script needs an Omarchy Wayland session and quickshell.'
+            echo '`python3 -m unittest discover` does not collect it.'
+            echo 'Run it on Omarchy before you tag. The steps are in `docs/PUBLISH.md`.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Render marketplace body
+        run: |
+          set -euo pipefail
+          mkdir -p marketplace-issue
+          bash scripts/marketplace-update-body.sh --title > marketplace-issue/title.txt
+          bash scripts/marketplace-update-body.sh > marketplace-issue/body.md
+          head=$(git rev-parse HEAD)
+          grep -F -q "$head" marketplace-issue/body.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-issue
+          path: marketplace-issue
+
+      - name: Write the body to the job summary
+        run: |
+          {
+            echo '### Marketplace issue'
+            echo
+            echo 'The job prepared this body. It opens the marketplace issue only when this run is a manual dispatch and `open_marketplace_issue` is true.'
+            echo
+            echo '```text'
+            cat marketplace-issue/title.txt
+            echo '```'
+            echo
+            echo '```text'
+            cat marketplace-issue/body.md
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open marketplace issue
+        if: github.event_name == 'workflow_dispatch' && inputs.open_marketplace_issue == true
+        env:
+          GH_TOKEN: ${{ secrets.MARKETPLACE_ISSUE_TOKEN }}
+        run: |
+          set -euo pipefail
+          title=$(tr -d '\n' < marketplace-issue/title.txt)
+          existing=$(gh issue list \
+            --repo omacom/omarchy-plugin-marketplace \
+            --state all \
+            --limit 100 \
+            --search "Garden in:title" \
+            --json number,title,url)
+          url=$(printf '%s' "$existing" | python3 -c 'import json,sys; title=sys.argv[1]; hits=[item for item in json.load(sys.stdin) if item.get("title")==title]; sys.stdout.write(hits[0]["url"] if hits else "")' "$title")
+          if [ -n "$url" ]; then
+            printf 'A marketplace issue already uses this title: %s\n' "$url" >&2
+            exit 1
+          fi
+          created=$(gh issue create \
+            --repo omacom/omarchy-plugin-marketplace \
+            --title "$title" \
+            --body-file marketplace-issue/body.md)
+          printf 'Opened %s\n' "$created" >> "$GITHUB_STEP_SUMMARY"
