@@ -467,7 +467,7 @@ def scan() -> Dict[str, Any]:
     else:
         agent_counts = {}
 
-    events = g.drop_bulk_checkout(events)
+    events = g.retain_events(events)
 
     # Git log is historical; only append git events we have not stored.
     seen_git = state.get("seenGit") or []

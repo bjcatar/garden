@@ -73,33 +73,33 @@ def file_burst(n, *, day="2026-09-06", slot=10, repo="r"):
 class CheckoutTests(unittest.TestCase):
     def test_fourteen_files_without_commit_are_kept(self):
         files = file_burst(14)
-        self.assertCountEqual(g.drop_bulk_checkout(files), files)
+        self.assertCountEqual(g.retain_events(files), files)
 
     def test_fifteen_files_without_commit_are_kept(self):
         files = file_burst(15)
-        self.assertCountEqual(g.drop_bulk_checkout(files), files)
+        self.assertCountEqual(g.retain_events(files), files)
 
     def test_larger_burst_without_commit_is_kept(self):
         files = file_burst(20)
-        self.assertCountEqual(g.drop_bulk_checkout(files), files)
+        self.assertCountEqual(g.retain_events(files), files)
 
     def test_bulk_files_with_same_slot_commit_kept(self):
         commit = {"type": "git", "day": "2026-09-06", "slot": 10, "repo": "r", "hash": "abc"}
         events = file_burst(20) + [commit]
-        self.assertCountEqual(g.drop_bulk_checkout(events), events)
+        self.assertCountEqual(g.retain_events(events), events)
 
     def test_commit_in_another_slot_does_not_drop_files(self):
         commit = {"type": "git", "day": "2026-09-06", "slot": 11, "repo": "r", "hash": "abc"}
         events = file_burst(15) + [commit]
-        self.assertCountEqual(g.drop_bulk_checkout(events), events)
+        self.assertCountEqual(g.retain_events(events), events)
 
     def test_one_repo_burst_does_not_drop_another_repo(self):
         events = file_burst(15, repo="wide") + file_burst(2, repo="narrow")
-        self.assertCountEqual(g.drop_bulk_checkout(events), events)
+        self.assertCountEqual(g.retain_events(events), events)
 
     def test_small_file_burst_kept(self):
         files = file_burst(1)
-        self.assertCountEqual(g.drop_bulk_checkout(files), files)
+        self.assertCountEqual(g.retain_events(files), files)
 
 
 if __name__ == "__main__":
