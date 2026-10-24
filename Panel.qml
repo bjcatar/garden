@@ -31,9 +31,99 @@ Panel {
   property double lastScanAt: 0
 
   property bool pinToday: false
+  property string panelView: "week"
+  property string selectedProject: ""
+  property bool yearPlaced: false
+
+  onPanelViewChanged: {
+    if (panelView !== "year" || yearPlaced) return
+    yearPlaced = true
+    if (yearFlick) {
+      yearFlick.pendingToday = true
+      Qt.callLater(function() {
+        if (yearFlick) yearFlick.scrollToToday()
+      })
+    }
+  }
+
+  readonly property var activityReport: {
+    var _ = dataRev
+    var report = snapshot && snapshot.activity
+    return report && typeof report === "object" ? report : null
+  }
+  readonly property var weekReport: activityReport && activityReport.week ? activityReport.week : null
+  readonly property var projectRows: activityReport && activityReport.projects ? activityReport.projects : []
+
+  function stepView(delta) {
+    var order = ["week", "projects", "year"]
+    var index = order.indexOf(panelView)
+    if (index < 0) index = 0
+    var next = index + delta
+    if (next < 0) next = order.length - 1
+    if (next >= order.length) next = 0
+    panelView = order[next]
+    selectedProject = ""
+  }
+
+  function weekHeadline() {
+    var week = weekReport
+    if (!week) return "This week fills in after a scan."
+    if ((week.daysActive || 0) === 0 && (week.machineHours || 0) === 0)
+      return "No observed time on this machine this week"
+    var days = week.daysActive || 0
+    var noun = days === 1 ? "day" : "days"
+    return days + " " + noun + " active · " + week.machineHours + "h on this machine"
+  }
+
+  function weekDayColor(day) {
+    if (!day || day.future) return Qt.rgba(contentForeground.r, contentForeground.g, contentForeground.b, 0.08)
+    var coverage = day.coverage || ""
+    if (coverage && coverage !== "observed" && coverage !== "git-history-only" && coverage !== "empty")
+      return colorForSlots(0, "unknown")
+    if ((day.observedSlots || 0) > 0) return colorForSlots(day.observedSlots, "observed")
+    if ((day.commits || 0) > 0 || coverage === "git-history-only") return colorForSlots(1, "git-history-only")
+    return colorForSlots(0, "observed")
+  }
+
+  function touchedLine(project) {
+    if (!project || !project.lastTouched) return ""
+    var touched = project.lastTouched
+    var when = "Last touched " + touched.day + " " + (touched.label || "")
+    if (touched.path) when += " · " + touched.path
+    var bits = [when]
+    if (project.daysActive) {
+      bits.push(project.daysActive + (project.daysActive === 1 ? " day active" : " days active"))
+    }
+    return bits.join(" · ")
+  }
+
+  function windowLine(item) {
+    if (!item) return ""
+    var sources = item.sources || []
+    var line = (item.weekday || "") + " " + (item.label || "")
+    var names = item.projects || []
+    if (names.length) line += " · " + names.join(", ")
+    if (sources.length === 1 && sources[0] === "git") line += " · commit only"
+    else if (!names.length && sources.indexOf("agent") >= 0) line += " · agent"
+    var also = item.also || []
+    if (also.length) line += " · also " + also.join(", ")
+    return line
+  }
+
+  function commitLine(item) {
+    if (!item) return ""
+    var subject = item.subject || item.hash || "commit"
+    var bits = [subject]
+    if (item.repo) bits.push(item.repo)
+    if (item.label) bits.push(item.label)
+    return bits.join(" · ")
+  }
 
   onOpenedChanged: {
     if (opened) {
+      panelView = "week"
+      selectedProject = ""
+      yearPlaced = false
       pinToday = true
       selectedDate = todayIso
       if (yearFlick) yearFlick.pendingToday = true
@@ -271,6 +361,11 @@ Panel {
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onActivateRequested: root.refresh()
       onMoveRequested: function(dx, dy) {
+        if (root.panelView !== "year") {
+          if (dx < 0) root.stepView(-1)
+          else if (dx > 0) root.stepView(1)
+          return
+        }
         if (dx !== 0) root.moveDay(dx)
         if (dy !== 0) root.moveDay(dy * 7)
       }
@@ -344,8 +439,253 @@ Panel {
             wrapMode: Text.WordWrap
           }
 
+          Row {
+            spacing: Style.space(14)
+            Text {
+              text: "This week"
+              color: root.panelView === "week" ? root.accent : root.dim
+              font.bold: root.panelView === "week"
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: { root.panelView = "week"; root.selectedProject = "" }
+              }
+            }
+            Text {
+              text: "Projects"
+              color: root.panelView === "projects" ? root.accent : root.dim
+              font.bold: root.panelView === "projects"
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: { root.panelView = "projects"; root.selectedProject = "" }
+              }
+            }
+            Text {
+              text: "Year"
+              color: root.panelView === "year" ? root.accent : root.dim
+              font.bold: root.panelView === "year"
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: { root.panelView = "year"; root.selectedProject = "" }
+              }
+            }
+          }
+
           Text {
-            visible: !!(root.snapshot.review && root.snapshot.review.sentence)
+            visible: root.panelView !== "year" && !!root.activityReport
+            width: parent.width - parent.leftPadding - parent.rightPadding
+            text: "Project windows overlap. They are not added into hours on this machine."
+            color: root.dim
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
+          Column {
+            id: weekBlock
+            visible: root.panelView === "week"
+            height: visible ? implicitHeight : 0
+            width: parent.width - parent.leftPadding - parent.rightPadding
+            spacing: Style.space(8)
+
+            Text {
+              width: parent.width
+              text: {
+                var _ = root.dataRev
+                return root.weekHeadline()
+              }
+              color: root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.bold: true
+              wrapMode: Text.WordWrap
+            }
+
+            Row {
+              spacing: 6
+              visible: !!root.weekReport
+              Repeater {
+                model: root.weekReport ? root.weekReport.days : []
+                Column {
+                  required property var modelData
+                  spacing: 3
+                  Rectangle {
+                    width: 28
+                    height: 18
+                    radius: 2
+                    color: root.weekDayColor(modelData)
+                    MouseArea {
+                      anchors.fill: parent
+                      enabled: !modelData.future
+                      cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onClicked: {
+                        root.selectedDate = modelData.date
+                        root.panelView = "year"
+                      }
+                    }
+                  }
+                  Text {
+                    width: 28
+                    horizontalAlignment: Text.AlignHCenter
+                    text: modelData.weekday
+                    color: root.dim
+                    font.family: root.contentFontFamily
+                    font.pixelSize: 9
+                  }
+                  Text {
+                    width: 28
+                    horizontalAlignment: Text.AlignHCenter
+                    text: {
+                      var coverage = modelData.coverage || ""
+                      if (modelData.future) return ""
+                      if (coverage && coverage !== "observed" && coverage !== "empty") return ""
+                      if ((modelData.observedSlots || 0) <= 0) return ""
+                      return String(Heatmap.hoursActive(modelData.observedSlots))
+                    }
+                    color: root.dim
+                    font.family: root.contentFontFamily
+                    font.pixelSize: 9
+                  }
+                }
+              }
+            }
+
+            Repeater {
+              model: root.weekReport ? root.weekReport.spans : []
+              Text {
+                required property var modelData
+                width: weekBlock.width
+                text: root.windowLine(modelData)
+                color: root.dim
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+              }
+            }
+
+            Text {
+              visible: !!(root.weekReport && root.weekReport.recentCommits && root.weekReport.recentCommits.length)
+              text: "Recent commits"
+              color: root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.bold: true
+            }
+
+            Repeater {
+              model: (root.weekReport && root.weekReport.recentCommits) ? root.weekReport.recentCommits : []
+              Text {
+                required property var modelData
+                width: weekBlock.width
+                text: root.commitLine(modelData)
+                color: root.dim
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideRight
+              }
+            }
+          }
+
+          Column {
+            id: projectBlock
+            visible: root.panelView === "projects"
+            height: visible ? implicitHeight : 0
+            width: parent.width - parent.leftPadding - parent.rightPadding
+            spacing: Style.space(8)
+
+            Text {
+              visible: !root.activityReport
+              width: parent.width
+              text: "Projects fill in after a scan."
+              color: root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+
+            Text {
+              visible: !!root.activityReport && root.projectRows.length === 0
+              width: parent.width
+              text: "No projects yet."
+              color: root.dim
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
+            Repeater {
+              model: root.projectRows
+              Column {
+                id: projectRow
+                required property var modelData
+                width: projectBlock.width
+                spacing: 2
+                Text {
+                  width: parent.width
+                  text: projectRow.modelData.name
+                  color: root.selectedProject === projectRow.modelData.name ? root.accent : root.contentForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                  elide: Text.ElideMiddle
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.selectedProject = root.selectedProject === projectRow.modelData.name ? "" : projectRow.modelData.name
+                  }
+                }
+                Text {
+                  width: parent.width
+                  text: root.touchedLine(projectRow.modelData)
+                  color: root.dim
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                }
+                Column {
+                  width: parent.width
+                  visible: root.selectedProject === projectRow.modelData.name
+                  height: visible ? implicitHeight : 0
+                  spacing: 2
+                  Repeater {
+                    model: projectRow.modelData.windows || []
+                    Text {
+                      required property var modelData
+                      width: projectBlock.width
+                      text: root.windowLine(modelData)
+                      color: root.dim
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.caption
+                      wrapMode: Text.WordWrap
+                    }
+                  }
+                  Repeater {
+                    model: projectRow.modelData.recentCommits || []
+                    Text {
+                      required property var modelData
+                      width: projectBlock.width
+                      text: root.commitLine(modelData)
+                      color: root.dim
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideRight
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          Text {
+            visible: root.panelView === "year" && !!(root.snapshot.review && root.snapshot.review.sentence)
             width: parent.width - parent.leftPadding - parent.rightPadding
             text: (root.snapshot.review && root.snapshot.review.sentence) ? root.snapshot.review.sentence : ""
             color: root.dim
@@ -355,6 +695,8 @@ Panel {
           }
 
           Column {
+            visible: root.panelView === "year"
+            height: visible ? implicitHeight : 0
             spacing: Style.space(4)
             width: parent.width - parent.leftPadding - parent.rightPadding
 
@@ -509,7 +851,8 @@ Panel {
           }
 
           Text {
-            visible: root.selectedDate !== ""
+            visible: root.panelView === "year" && root.selectedDate !== ""
+            height: visible ? implicitHeight : 0
             width: parent.width - parent.leftPadding - parent.rightPadding
             color: root.contentForeground
             font.family: root.contentFontFamily
@@ -531,7 +874,8 @@ Panel {
           }
 
           Text {
-            visible: root.selectedDate !== ""
+            visible: root.panelView === "year" && root.selectedDate !== ""
+            height: visible ? implicitHeight : 0
             width: parent.width - parent.leftPadding - parent.rightPadding
             text: "This day, half-hour by half-hour"
             color: root.dim
@@ -540,7 +884,8 @@ Panel {
           }
 
           Row {
-            visible: root.selectedDate !== ""
+            visible: root.panelView === "year" && root.selectedDate !== ""
+            height: visible ? implicitHeight : 0
             spacing: 1
             width: parent.width - parent.leftPadding - parent.rightPadding
             Repeater {
@@ -563,7 +908,8 @@ Panel {
           }
 
           Text {
-            visible: !!(root.selectedDate !== "" && root.selectedDay && root.selectedDay.bySlot)
+            visible: root.panelView === "year" && !!(root.selectedDate !== "" && root.selectedDay && root.selectedDay.bySlot)
+            height: visible ? implicitHeight : 0
             width: parent.width - parent.leftPadding - parent.rightPadding
             wrapMode: Text.WordWrap
             color: root.dim

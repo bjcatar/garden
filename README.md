@@ -12,7 +12,7 @@ python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --install-timer
 python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan
 ```
 
-Click the sprout on the right of the bar (after Agents). That opens the year on **today**, then scans once the shell releases its initial keyboard grab. Click a day for a 48-slot strip and which repos lit each half-hour. Flick left for earlier months. Use **Refresh** in the panel if you want another scan right now. **Enable background scan** if the 15-minute timer is off.
+Click the sprout on the right of the bar (after Agents). That opens **This week**, then scans once the shell releases its initial keyboard grab. **Projects** lists where you left off. **Year** is the heatmap. Click a day for a 48-slot strip and which repos lit each half-hour. Flick left for earlier months. A project shows time ranges. Those ranges overlap, so they are not added into the machine total. Use **Refresh** in the panel if you want another scan right now. **Enable background scan** if the 15-minute timer is off.
 
 Escape closes the popup, including while editing a folder. Clicking the sprout again or outside the card also closes it. The folder field takes keyboard focus when clicked.
 
@@ -32,7 +32,7 @@ omarchy-shell shell rescanPlugins
 
 ## Bar
 
-One themed Nerd Font sprout, same slot as Bluetooth. Hover is hours built **here** today. Left-click scans (if it has been more than 30s) and opens the year. Middle-click scans even if the panel is already open.
+One themed Nerd Font sprout, same slot as Bluetooth. Hover is hours built **here** today. Left-click scans (if it has been more than 30s) and opens this week. Middle-click scans even if the panel is already open.
 
 ## Folders
 
