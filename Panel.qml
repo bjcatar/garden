@@ -859,7 +859,6 @@ Panel {
 
           Text {
             visible: root.panelView === "year" && root.selectedDate !== ""
-            height: visible ? implicitHeight : 0
             width: parent.width - parent.leftPadding - parent.rightPadding
             color: root.contentForeground
             font.family: root.contentFontFamily
@@ -882,7 +881,6 @@ Panel {
 
           Text {
             visible: root.panelView === "year" && root.selectedDate !== ""
-            height: visible ? implicitHeight : 0
             width: parent.width - parent.leftPadding - parent.rightPadding
             text: "This day, half-hour by half-hour"
             color: root.dim
@@ -916,7 +914,6 @@ Panel {
 
           Text {
             visible: root.panelView === "year" && !!(root.selectedDate !== "" && root.selectedDay && root.selectedDay.bySlot)
-            height: visible ? implicitHeight : 0
             width: parent.width - parent.leftPadding - parent.rightPadding
             wrapMode: Text.WordWrap
             color: root.dim
