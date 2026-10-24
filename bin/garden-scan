@@ -339,6 +339,29 @@ def load_ledger_slots(start: date) -> Dict[str, Dict[str, Any]]:
     return days
 
 
+def load_ledger_events(start: date) -> List[Dict[str, Any]]:
+    if not LEDGER_PATH.is_file():
+        return []
+    start_iso = start.isoformat()
+    try:
+        lines = LEDGER_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    events: List[Dict[str, Any]] = []
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        day = event.get("day")
+        if not isinstance(day, str) or day < start_iso:
+            continue
+        events.append(event)
+    return events
+
+
 def timer_enabled() -> bool:
     try:
         result = subprocess.run(
@@ -406,6 +429,12 @@ def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[P
             continue
         review_rows.append({"day": iso, "slots": bucket.get("obs_slots") or bucket.get("slots") or set()})
     review = g.collect_review(review_rows, today)
+    coverage = {
+        iso: row.get("coverage")
+        for iso, row in days_out.items()
+        if isinstance(row, dict) and isinstance(row.get("coverage"), str)
+    }
+    activity = g.summarize_activity(load_ledger_events(start), today, coverage)
     return {
         "generatedAt": datetime.now().isoformat(timespec="seconds"),
         "range": {"start": start.isoformat(), "end": today_iso},
@@ -418,6 +447,7 @@ def build_heatmap(settings: Dict[str, Any], state: Dict[str, Any], repos: List[P
         "sources": settings.get("sources"),
         "slotMinutes": settings.get("slotMinutes") or 30,
         "review": review,
+        "activity": activity,
         "timerEnabled": timer_enabled(),
     }
 
