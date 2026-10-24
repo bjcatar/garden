@@ -142,14 +142,15 @@ The catalog keeps the previous snapshot until publication finishes. A newer comm
 
 ## Replace the preview
 
-`preview.png` is a PNG, 1280 by 780, 99638 bytes. Its sha256 is `bb54edab720cc0093ba2f2996b7355a8c75ab49be762332b136e9dceb635c9ee`. That file predates the **This week**, **Projects**, and **Year** switcher in `Panel.qml`. Capture a new preview on Omarchy before the next marketplace update. Do not commit a drawn stand-in.
+`preview.png` is a PNG, 1280 by 780, 99638 bytes. Its sha256 is `bb54edab720cc0093ba2f2996b7355a8c75ab49be762332b136e9dceb635c9ee`. That file predates the **Year**, **This week**, and **Projects** switcher in `Panel.qml`. Capture a new preview on Omarchy before the next marketplace update. Do not commit a drawn stand-in.
 
-The marketplace reads one root preview. Take these frames, then put one of them in `preview.png`. Prefer the open panel on **This week**, because that is the view a sprout click opens.
+The marketplace reads one root preview. Put the open panel on **Year** in `preview.png`. A sprout click opens **Year**.
+
+These frames are optional.
 
 - The bar sprout in its slot.
 - The panel on **This week**.
 - The panel on **Projects**.
-- The panel on **Year**.
 
 1. Install the commit you will tag, using the rsync block in the README.
 2. Run `omarchy restart shell`.
