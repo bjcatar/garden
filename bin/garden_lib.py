@@ -212,27 +212,5 @@ def collect_review(days: Sequence[Dict[str, Any]], today: date, min_active_days:
     }
 
 
-BULK_CHECKOUT = 15
-
-
-def drop_bulk_checkout(events: Sequence[Dict[str, Any]], threshold: int = BULK_CHECKOUT) -> List[Dict[str, Any]]:
-    """Drop file bursts in a slot with no commit — likely clone/pull, not typing."""
-    git_keys = set()
-    files_by: Dict[tuple, List[Dict[str, Any]]] = {}
-    others: List[Dict[str, Any]] = []
-    for event in events:
-        kind = event.get("type")
-        key = (event.get("day"), event.get("slot"), event.get("repo"))
-        if kind == "git":
-            git_keys.add(key)
-            others.append(event)
-        elif kind == "file":
-            files_by.setdefault(key, []).append(event)
-        else:
-            others.append(event)
-    kept = list(others)
-    for key, files in files_by.items():
-        if key not in git_keys and len(files) >= threshold:
-            continue
-        kept.extend(files)
-    return kept
+def retain_events(events: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return list(events)
