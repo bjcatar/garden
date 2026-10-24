@@ -31,7 +31,7 @@ Panel {
   property double lastScanAt: 0
 
   property bool pinToday: false
-  property string panelView: "week"
+  property string panelView: "year"
   property string selectedProject: ""
   property bool yearPlaced: false
 
@@ -55,7 +55,7 @@ Panel {
   readonly property var projectRows: activityReport && activityReport.projects ? activityReport.projects : []
 
   function stepView(delta) {
-    var order = ["week", "projects", "year"]
+    var order = ["year", "week", "projects"]
     var index = order.indexOf(panelView)
     if (index < 0) index = 0
     var next = index + delta
@@ -121,9 +121,9 @@ Panel {
 
   onOpenedChanged: {
     if (opened) {
-      panelView = "week"
+      yearPlaced = true
+      panelView = "year"
       selectedProject = ""
-      yearPlaced = false
       pinToday = true
       selectedDate = todayIso
       if (yearFlick) yearFlick.pendingToday = true
@@ -442,6 +442,18 @@ Panel {
           Row {
             spacing: Style.space(14)
             Text {
+              text: "Year"
+              color: root.panelView === "year" ? root.accent : root.dim
+              font.bold: root.panelView === "year"
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: { root.panelView = "year"; root.selectedProject = "" }
+              }
+            }
+            Text {
               text: "This week"
               color: root.panelView === "week" ? root.accent : root.dim
               font.bold: root.panelView === "week"
@@ -463,18 +475,6 @@ Panel {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
                 onClicked: { root.panelView = "projects"; root.selectedProject = "" }
-              }
-            }
-            Text {
-              text: "Year"
-              color: root.panelView === "year" ? root.accent : root.dim
-              font.bold: root.panelView === "year"
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-              MouseArea {
-                anchors.fill: parent
-                cursorShape: Qt.PointingHandCursor
-                onClicked: { root.panelView = "year"; root.selectedProject = "" }
               }
             }
           }
