@@ -61,7 +61,10 @@ function buildWeeks(startIso, endIso, days) {
         files: cell ? (cell.files || 0) : 0,
         coverage: cell ? (cell.coverage || "empty") : "empty",
         observedSlots: cell && cell.observedSlots != null ? cell.observedSlots : (cell ? (cell.slots || 0) : 0),
-        repos: cell && cell.repos ? cell.repos : []
+        repos: cell && cell.repos ? cell.repos : [],
+        paint: cell && cell.paint ? cell.paint : "",
+        label: cell && cell.label ? cell.label : "",
+        headline: cell && cell.headline ? cell.headline : ""
       })
       cursor.setDate(cursor.getDate() + 1)
     }

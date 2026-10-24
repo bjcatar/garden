@@ -18,6 +18,9 @@ BarWidget {
   readonly property int dataRev: panelLoader.item ? panelLoader.item.dataRev : 0
   readonly property int todaySlots: panelLoader.item ? panelLoader.item.todaySlots : 0
   readonly property string hoursLabel: {
+    var item = panelLoader.item
+    var headline = item ? item.todayHeadline : ""
+    if (headline) return headline
     var h = root.todaySlots * 0.5
     if (h <= 0) return "This Omarchy box is waiting"
     if (h === 0.5) return "A half hour on this machine today"
