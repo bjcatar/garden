@@ -432,13 +432,16 @@ def _git_probe(settings: Dict[str, Any], repos: List[Path], today: date) -> g.Pr
 
 def build_heatmap(
     settings: Dict[str, Any],
-    state: g.ScanState,
+    state: Any,
     repos: List[Path],
-    events: List[Dict[str, Any]],
+    events: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     today = date.today()
     start = today - timedelta(days=364)
-    covered = g.cover_days(events, state, start, today)
+    if events is None:
+        events = load_ledger()
+    parsed = state if isinstance(state, g.ScanState) else g.parse_scan_state(state if isinstance(state, dict) else None)
+    covered = g.cover_days(events, parsed, start, today)
     days_out = {iso: day.as_heatmap_day() for iso, day in covered.items()}
     today_iso = today.isoformat()
     today_row = days_out.get(today_iso) or {}
@@ -469,7 +472,7 @@ def build_heatmap(
         "slotMinutes": settings.get("slotMinutes") or 30,
         "review": g.collect_review(review_rows, today),
         "activity": activity,
-        "scanStatus": g.scan_status_text(state, enabled),
+        "scanStatus": g.scan_status_text(parsed, enabled),
         "timerEnabled": enabled,
     }
 

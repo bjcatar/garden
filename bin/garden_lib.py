@@ -512,6 +512,8 @@ def summarize_activity(
         },
         "projects": projects,
     }
+
+
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _MARKS = ("off", "ok", "failed")
 _SOURCE_ORDER = ("files", "git", "agents")
