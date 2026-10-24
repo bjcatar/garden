@@ -14,10 +14,17 @@ Panel {
   property var anchorItem: null
   property var hostWidget: null
   readonly property var barIdentity: hostWidget || root
-  readonly property color contentForeground: bar ? bar.foreground : Color.foreground
+  // Color.* is undefined when the theme singleton is shadowed or not loaded.
+  readonly property color contentForeground: {
+    var value = (bar && bar.foreground !== undefined) ? bar.foreground : Color.foreground
+    return (value === undefined || value === null) ? "#cacccc" : value
+  }
   readonly property color dim: Qt.darker(contentForeground, 1.55)
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
-  readonly property color accent: Color.accent
+  readonly property color accent: {
+    var value = Color.accent
+    return (value === undefined || value === null) ? contentForeground : value
+  }
 
   property var snapshot: ({})
   property var gardenSettings: ({ roots: [] })
