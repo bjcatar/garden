@@ -1,11 +1,15 @@
-"""Garden activity math and settings. No I/O except path validation."""
+"""Garden activity math, settings, and scan coverage.
+
+Path validation checks directories. The coverage functions do not start processes or read files.
+"""
 from __future__ import annotations
 
 import os
 import re
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
+from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional, Sequence, Set
 
 SLOT_MINUTES = 30
 SLOTS_PER_DAY = 24 * 60 // SLOT_MINUTES  # 48
@@ -150,12 +154,6 @@ def _fmt_hhmm(total_minutes: int) -> str:
     return f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
 
 
-def _fmt_hours(hours: float) -> str:
-    if hours == int(hours):
-        return str(int(hours))
-    return f"{hours:g}"
-
-
 def collect_review(days: Sequence[Dict[str, Any]], today: date, min_active_days: int = 7) -> Optional[Dict[str, Any]]:
     """Encouragement payload, or None until there are enough lit days."""
     by_day: Dict[str, Set[int]] = {}
@@ -186,20 +184,21 @@ def collect_review(days: Sequence[Dict[str, Any]], today: date, min_active_days:
     this_mon = _monday_on_or_before(today)
     last_mon = this_mon - timedelta(days=7)
 
-    def hours_between(start: date, end: date) -> float:
+    def slots_between(start: date, end: date) -> int:
         n = 0
         cursor = start
         while cursor < end:
             n += len(by_day.get(cursor.isoformat(), ()))
             cursor += timedelta(days=1)
-        return hours_active(n)
+        return n
 
-    h_this = hours_between(this_mon, this_mon + timedelta(days=7))
-    h_last = hours_between(last_mon, this_mon)
+    slots_this = slots_between(this_mon, this_mon + timedelta(days=7))
+    h_this = hours_active(slots_this)
+    h_last = hours_active(slots_between(last_mon, this_mon))
     start_m = peak_slot * SLOT_MINUTES
     wd = WEEKDAYS[peak_wd]
     sentence = (
-        f"{_fmt_hours(h_this)}h this week on this Omarchy box. "
+        f"{week_clause(slots_this)}. "
         f"You show up on {wd}s. Around {_fmt_hhmm(start_m)}–{_fmt_hhmm(start_m + SLOT_MINUTES)}."
     )
     return {
@@ -513,3 +512,685 @@ def summarize_activity(
         },
         "projects": projects,
     }
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+_MARKS = ("off", "ok", "failed")
+_SOURCE_ORDER = ("files", "git", "agents")
+_SOURCE_TITLE = {"files": "Files", "git": "Git", "agents": "Agents"}
+
+
+def _is_num(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _local_dt(ts: float) -> datetime:
+    return datetime.fromtimestamp(ts)
+
+
+def _pretty(day: date) -> str:
+    return f"{WEEKDAYS[day.weekday()]}, {_MONTHS[day.month - 1]} {day.day}, {day.year}"
+
+
+def _ampm(when: datetime) -> str:
+    hour = when.hour
+    meridiem = "AM" if hour < 12 else "PM"
+    hour12 = hour % 12 or 12
+    return f"{hour12}:{when.minute:02d} {meridiem}"
+
+
+def _stamp(ts: float) -> str:
+    when = _local_dt(ts)
+    return f"{_pretty(when.date())}, {_ampm(when)}"
+
+
+def _day_bounds(day: date) -> tuple[float, float]:
+    start = datetime.combine(day, datetime.min.time()).timestamp()
+    end = datetime.combine(day + timedelta(days=1), datetime.min.time()).timestamp()
+    return start, end
+
+
+def _merge_spans(spans: Sequence[tuple[float, float]]) -> tuple[tuple[float, float], ...]:
+    ordered = sorted((start, end) for start, end in spans if end > start)
+    merged: List[tuple[float, float]] = []
+    for start, end in ordered:
+        if not merged or start > merged[-1][1]:
+            merged.append((start, end))
+        elif end > merged[-1][1]:
+            merged[-1] = (merged[-1][0], end)
+    return tuple(merged)
+
+
+def _clip_span(start: float, end: float, day_start: float, day_end: float) -> tuple[float, float] | None:
+    clipped_start = day_start if start < day_start else start
+    clipped_end = day_end if end > day_end else end
+    if clipped_end <= clipped_start:
+        return None
+    return clipped_start, clipped_end
+
+
+def _span_text(start: float, end: float, day_end: float) -> str:
+    start_text = _ampm(_local_dt(start))
+    end_text = "midnight" if end == day_end else _ampm(_local_dt(end))
+    return f"{start_text} to {end_text}"
+
+
+def _sampled_count_phrase(slot_count: int) -> str:
+    """"1 half-hour sampled" or "N half-hours sampled". slot_count below 1 is a caller bug."""
+    if slot_count < 1:
+        raise ValueError("slot_count")
+    if slot_count == 1:
+        return "1 half-hour sampled"
+    return f"{slot_count} half-hours sampled"
+
+
+def _event_key(event: Mapping[str, Any]) -> tuple | None:
+    kind = event.get("type")
+    if kind == "git":
+        digest = event.get("hash")
+        if not isinstance(digest, str) or not digest:
+            return None
+        return ("git", digest)
+    if kind == "file":
+        repo = event.get("repo")
+        path = event.get("path")
+        day = event.get("day")
+        slot = event.get("slot")
+        if repo is None or path is None or day is None or slot is None:
+            return None
+        return ("file", repo, path, day, slot)
+    if kind == "agent":
+        agent = event.get("agent")
+        day = event.get("day")
+        slot = event.get("slot")
+        if agent is None or day is None or slot is None:
+            return None
+        return ("agent", agent, day, slot)
+    return None
+
+
+def _agent_pairs(raw: Mapping[str, int] | None) -> tuple[tuple[str, int], ...]:
+    if not raw:
+        return ()
+    pairs = [
+        (key, value)
+        for key, value in raw.items()
+        if isinstance(key, str) and isinstance(value, int) and not isinstance(value, bool)
+    ]
+    pairs.sort(key=lambda item: item[0])
+    return tuple(pairs)
+
+
+def _blank_state() -> "ScanState":
+    return ScanState(
+        first_sample_at=None,
+        file_cursor=0,
+        file_windows=(),
+        files_ok_at=None,
+        git_ok_at=None,
+        agents_ok_at=None,
+        last_attempt_at=None,
+        last_files=None,
+        last_git=None,
+        last_agents=None,
+        agent_counts=(),
+    )
+
+
+def _forward(previous: float | None, now: float) -> float:
+    if previous is None or now >= previous:
+        return now
+    return previous
+
+
+def _probe_mark(probe: "Probe") -> Literal["off", "ok", "failed"]:
+    if isinstance(probe, ProbeOff):
+        return "off"
+    if isinstance(probe, ProbeOk):
+        return "ok"
+    if isinstance(probe, ProbeFailed):
+        return "failed"
+    raise TypeError(type(probe).__name__)
+
+
+def _probe_events(probe: "Probe") -> tuple[Mapping[str, Any], ...]:
+    if isinstance(probe, (ProbeOk, ProbeFailed)):
+        return tuple(probe.events)
+    return ()
+
+
+@dataclass(frozen=True)
+class ProbeOff:
+    """The source is disabled, or it is enabled and there is nothing to walk."""
+
+
+@dataclass(frozen=True)
+class ProbeOk:
+    """Every walked target finished. An empty event tuple is a successful look."""
+
+    events: tuple[Mapping[str, Any], ...] = ()
+    agent_counts: Mapping[str, int] | None = None
+
+
+@dataclass(frozen=True)
+class ProbeFailed:
+    """At least one walked target did not finish. events are the roots that did."""
+
+    events: tuple[Mapping[str, Any], ...] = ()
+
+
+Probe = ProbeOff | ProbeOk | ProbeFailed
+
+
+@dataclass(frozen=True)
+class FileWindow:
+    """One fully successful file walk, as a half-open unix interval [start, end)."""
+
+    start: float
+    end: float
+
+    def __post_init__(self) -> None:
+        if self.end <= self.start:
+            raise ValueError("file window end must be greater than start")
+
+
+@dataclass(frozen=True)
+class ScanState:
+    first_sample_at: float | None
+    file_cursor: float
+    file_windows: tuple[FileWindow, ...]
+    files_ok_at: float | None
+    git_ok_at: float | None
+    agents_ok_at: float | None
+    last_attempt_at: float | None
+    last_files: Literal["off", "ok", "failed"] | None
+    last_git: Literal["off", "ok", "failed"] | None
+    last_agents: Literal["off", "ok", "failed"] | None
+    agent_counts: tuple[tuple[str, int], ...]
+
+    def to_json(self) -> dict[str, Any]:
+        """state.json object. Omits lastSampleAt and seenGit."""
+        payload: dict[str, Any] = {
+            "fileCursor": self.file_cursor,
+            "fileWindows": [[window.start, window.end] for window in self.file_windows],
+            "okAt": {
+                "files": self.files_ok_at,
+                "git": self.git_ok_at,
+                "agents": self.agents_ok_at,
+            },
+            "agentCounts": {key: value for key, value in self.agent_counts},
+        }
+        if self.first_sample_at is not None:
+            payload = {"firstSampleAt": self.first_sample_at, **payload}
+        if (
+            self.last_attempt_at is not None
+            and self.last_files in _MARKS
+            and self.last_git in _MARKS
+            and self.last_agents in _MARKS
+        ):
+            payload["lastAttempt"] = {
+                "at": self.last_attempt_at,
+                "files": self.last_files,
+                "git": self.last_git,
+                "agents": self.last_agents,
+            }
+        return payload
+
+
+@dataclass(frozen=True)
+class ScanPlan:
+    """Ledger rows still absent, and the state to rename into place."""
+
+    events_to_append: tuple[Mapping[str, Any], ...]
+    state: ScanState
+
+
+@dataclass(frozen=True)
+class DayCoverage:
+    day: str
+    coverage: Literal["unknown", "gap", "sampled", "git-history-only"]
+    observed_slots: int
+    observed_slot_indexes: tuple[int, ...]
+    slots: int
+    slot_indexes: tuple[int, ...]
+    commits: int
+    files: int
+    agents: int
+    repos: tuple[str, ...]
+    by_slot: dict[str, Any]
+    intervals: tuple[tuple[float, float], ...]
+    read_at: float | None
+    paint: Literal["dim", "pale", "lit"]
+    label: str
+    headline: str
+
+    def as_heatmap_day(self) -> dict[str, Any]:
+        """heatmap.json day. Omits intervals and read_at."""
+        return {
+            "slots": self.slots,
+            "commits": self.commits,
+            "files": self.files,
+            "agents": self.agents,
+            "repos": list(self.repos),
+            "coverage": self.coverage,
+            "slotIndexes": list(self.slot_indexes),
+            "bySlot": self.by_slot,
+            "observedSlots": self.observed_slots,
+            "paint": self.paint,
+            "label": self.label,
+            "headline": self.headline,
+        }
+
+
+def process_failed(returncode: int | None, failure: str | None) -> bool:
+    """Exit 0 and failure None is success, including empty stdout. Any other result failed."""
+    if failure is not None:
+        return True
+    if returncode is None:
+        return True
+    return returncode != 0
+
+
+def combine_file_probes(parts: Sequence[ProbeOk | ProbeFailed]) -> ProbeOk | ProbeFailed:
+    """One failed root fails the file probe. Events stay in part order, including successes."""
+    if not parts:
+        raise ValueError("combine_file_probes requires at least one probe")
+    events: List[Mapping[str, Any]] = []
+    failed = False
+    for part in parts:
+        if isinstance(part, ProbeFailed):
+            failed = True
+        elif not isinstance(part, ProbeOk):
+            raise TypeError(type(part).__name__)
+        events.extend(part.events)
+    if failed:
+        return ProbeFailed(events=tuple(events))
+    return ProbeOk(events=tuple(events))
+
+
+def parse_scan_state(raw: Mapping[str, Any] | None) -> ScanState:
+    """Read state.json. firstSampleAt and lastSampleAt never become a window or a success clock."""
+    if not isinstance(raw, Mapping):
+        return _blank_state()
+
+    if _is_num(raw.get("fileCursor")):
+        cursor = float(raw["fileCursor"])
+    elif _is_num(raw.get("lastSampleAt")):
+        cursor = float(raw["lastSampleAt"])
+    else:
+        cursor = 0
+    if cursor < 0:
+        cursor = 0
+
+    spans: List[tuple[float, float]] = []
+    raw_windows = raw.get("fileWindows")
+    if isinstance(raw_windows, list):
+        for pair in raw_windows:
+            if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                continue
+            if not _is_num(pair[0]) or not _is_num(pair[1]):
+                continue
+            spans.append((float(pair[0]), float(pair[1])))
+    windows = tuple(FileWindow(start, end) for start, end in _merge_spans(spans))
+
+    first = raw.get("firstSampleAt")
+    first_sample_at = float(first) if _is_num(first) and float(first) > 0 else None
+
+    files_ok_at = None
+    git_ok_at = None
+    agents_ok_at = None
+    ok_at = raw.get("okAt")
+    if isinstance(ok_at, Mapping):
+        if _is_num(ok_at.get("files")):
+            files_ok_at = float(ok_at["files"])
+        if _is_num(ok_at.get("git")):
+            git_ok_at = float(ok_at["git"])
+        if _is_num(ok_at.get("agents")):
+            agents_ok_at = float(ok_at["agents"])
+
+    last_attempt_at = None
+    last_files = None
+    last_git = None
+    last_agents = None
+    attempt = raw.get("lastAttempt")
+    if isinstance(attempt, Mapping):
+        at = attempt.get("at")
+        marks = (attempt.get("files"), attempt.get("git"), attempt.get("agents"))
+        if _is_num(at) and all(mark in _MARKS for mark in marks):
+            last_attempt_at = float(at)
+            last_files, last_git, last_agents = marks
+
+    return ScanState(
+        first_sample_at=first_sample_at,
+        file_cursor=cursor,
+        file_windows=windows,
+        files_ok_at=files_ok_at,
+        git_ok_at=git_ok_at,
+        agents_ok_at=agents_ok_at,
+        last_attempt_at=last_attempt_at,
+        last_files=last_files,
+        last_git=last_git,
+        last_agents=last_agents,
+        agent_counts=_agent_pairs(raw.get("agentCounts") if isinstance(raw.get("agentCounts"), Mapping) else None),
+    )
+
+
+def plan_scan(
+    state: ScanState,
+    ledger_events: Sequence[Mapping[str, Any]],
+    files: Probe,
+    git: Probe,
+    agents: Probe,
+    now: float,
+    midnight: float,
+) -> ScanPlan:
+    """Next ledger rows and state. The file cursor moves only after a full file success past its since."""
+    since = file_since_ts(state.file_cursor, midnight)
+    files_mark = _probe_mark(files)
+    git_mark = _probe_mark(git)
+    agents_mark = _probe_mark(agents)
+
+    seen = set()
+    for event in ledger_events:
+        if isinstance(event, Mapping):
+            key = _event_key(event)
+            if key is not None:
+                seen.add(key)
+    fresh: List[Mapping[str, Any]] = []
+    for probe in (files, git, agents):
+        for event in _probe_events(probe):
+            if not isinstance(event, Mapping):
+                continue
+            key = _event_key(event)
+            if key is None or key in seen:
+                continue
+            seen.add(key)
+            fresh.append(event)
+
+    file_cursor = state.file_cursor
+    file_windows = state.file_windows
+    files_ok_at = state.files_ok_at
+    git_ok_at = state.git_ok_at
+    agents_ok_at = state.agents_ok_at
+    agent_counts = state.agent_counts
+
+    if files_mark == "ok":
+        files_ok_at = _forward(files_ok_at, now)
+        if now > since:
+            file_windows = tuple(
+                FileWindow(start, end)
+                for start, end in _merge_spans([*[(w.start, w.end) for w in file_windows], (since, now)])
+            )
+            file_cursor = now
+    if git_mark == "ok":
+        git_ok_at = _forward(git_ok_at, now)
+    if agents_mark == "ok" and isinstance(agents, ProbeOk):
+        agents_ok_at = _forward(agents_ok_at, now)
+        agent_counts = _agent_pairs(agents.agent_counts)
+    elif agents_mark == "off":
+        agent_counts = ()
+
+    first_sample_at = state.first_sample_at
+    if first_sample_at is None and "ok" in (files_mark, git_mark, agents_mark):
+        first_sample_at = now
+
+    if state.last_attempt_at is None or now >= state.last_attempt_at:
+        last_attempt_at: float | None = now
+        last_files: Literal["off", "ok", "failed"] | None = files_mark
+        last_git: Literal["off", "ok", "failed"] | None = git_mark
+        last_agents: Literal["off", "ok", "failed"] | None = agents_mark
+    else:
+        last_attempt_at = state.last_attempt_at
+        last_files = state.last_files
+        last_git = state.last_git
+        last_agents = state.last_agents
+
+    return ScanPlan(
+        events_to_append=tuple(fresh),
+        state=ScanState(
+            first_sample_at=first_sample_at,
+            file_cursor=file_cursor,
+            file_windows=file_windows,
+            files_ok_at=files_ok_at,
+            git_ok_at=git_ok_at,
+            agents_ok_at=agents_ok_at,
+            last_attempt_at=last_attempt_at,
+            last_files=last_files,
+            last_git=last_git,
+            last_agents=last_agents,
+            agent_counts=agent_counts,
+        ),
+    )
+
+
+def _empty_tally() -> Dict[str, Any]:
+    return {
+        "slots": set(),
+        "obs": set(),
+        "git_slots": set(),
+        "commits": 0,
+        "files": set(),
+        "agents": 0,
+        "repos": set(),
+        "by_slot": {},
+    }
+
+
+def _tally_events(events: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    days: Dict[str, Dict[str, Any]] = {}
+    for event in events:
+        if not isinstance(event, Mapping):
+            continue
+        day = event.get("day")
+        if not isinstance(day, str) or not day:
+            continue
+        bucket = days.setdefault(day, _empty_tally())
+        slot = event.get("slot")
+        if isinstance(slot, int) and not isinstance(slot, bool):
+            bucket["slots"].add(slot)
+            info = bucket["by_slot"].setdefault(slot, {"git": 0, "file": 0, "repos": set()})
+            kind = event.get("type")
+            if kind == "git":
+                bucket["git_slots"].add(slot)
+                bucket["commits"] += 1
+                info["git"] += 1
+            elif kind == "file":
+                bucket["obs"].add(slot)
+                path = event.get("path") or ""
+                if path:
+                    bucket["files"].add(f"{event.get('repo') or ''}:{path}")
+                info["file"] += 1
+            elif kind == "agent":
+                bucket["obs"].add(slot)
+                bucket["agents"] += 1
+            repo = event.get("repo")
+            if isinstance(repo, str) and repo:
+                info["repos"].add(repo)
+        repo = event.get("repo")
+        if isinstance(repo, str) and repo:
+            bucket["repos"].add(repo)
+    return days
+
+
+def _first_local_day(state: ScanState) -> date | None:
+    if state.first_sample_at is not None:
+        return _local_dt(state.first_sample_at).date()
+    if state.file_windows:
+        return _local_dt(min(window.start for window in state.file_windows)).date()
+    return None
+
+
+def _day_label(
+    pretty: str,
+    coverage: str,
+    observed: int,
+    intervals: tuple[tuple[float, float], ...],
+    read_at: float | None,
+    day_start: float,
+    day_end: float,
+) -> str:
+    if coverage == "unknown":
+        return f"{pretty} · not monitored yet"
+    if coverage == "gap":
+        return f"{pretty} · no successful scan"
+    if coverage == "git-history-only":
+        return f"{pretty} · git history only, may not have happened on this PC"
+    later = read_at is not None and read_at > day_end
+    if observed > 0:
+        label = f"{pretty} · {_sampled_count_phrase(observed)}"
+        if later:
+            label += f" · read {_stamp(read_at)}"
+        return label
+    full_day = (
+        len(intervals) == 1
+        and intervals[0][0] == day_start
+        and intervals[0][1] == day_end
+        and later
+    )
+    if full_day:
+        return f"{pretty} · no file changes still on disk · sampled {_stamp(read_at)}"
+    noun = "windows" if len(intervals) > 1 else "window"
+    spans = ", ".join(_span_text(start, end, day_end) for start, end in intervals)
+    label = f"{pretty} · no file changes in the sampled {noun} · {spans}"
+    if intervals and intervals[0][0] > day_start:
+        label += f" · before {_ampm(_local_dt(intervals[0][0]))} was not sampled"
+    if later:
+        label += f" · read {_stamp(read_at)}"
+    return label
+
+
+def _day_headline(coverage: str, observed: int) -> str:
+    if coverage == "unknown":
+        return "Not monitored yet"
+    if coverage == "gap":
+        return "No successful scan today"
+    if coverage == "git-history-only":
+        return "Git history only today"
+    if observed <= 0:
+        return "No file changes in the sampled window today"
+    if observed == 1:
+        return "1 half-hour sampled on this machine today"
+    return f"{observed} half-hours sampled on this machine today"
+
+
+def _paint(coverage: str, observed: int) -> Literal["dim", "pale", "lit"]:
+    if coverage == "git-history-only":
+        return "pale"
+    if coverage == "sampled" and observed > 0:
+        return "lit"
+    return "dim"
+
+
+def cover_days(
+    events: Sequence[Mapping[str, Any]],
+    state: ScanState,
+    start: date,
+    end: date,
+) -> dict[str, DayCoverage]:
+    """Every local day from start through end. Only end gets a headline. Bounds are local midnights."""
+    tallies = _tally_events(events)
+    first_day = _first_local_day(state)
+    covered: dict[str, DayCoverage] = {}
+    day = start
+    while day <= end:
+        iso = day.isoformat()
+        day_start, day_end = _day_bounds(day)
+        hits = [window for window in state.file_windows if window.start < day_end and window.end > day_start]
+        read_at = max((window.end for window in hits), default=None)
+        clipped = []
+        for window in hits:
+            piece = _clip_span(window.start, window.end, day_start, day_end)
+            if piece is not None:
+                clipped.append(piece)
+        intervals = _merge_spans(clipped)
+        bucket = tallies.get(iso) or _empty_tally()
+        observed_indexes = tuple(sorted(bucket["obs"]))
+        slot_indexes = tuple(sorted(bucket["slots"]))
+        observed = len(observed_indexes)
+        if observed:
+            coverage = "sampled"
+        elif bucket["git_slots"]:
+            coverage = "git-history-only"
+        elif intervals:
+            coverage = "sampled"
+        elif first_day is None or day < first_day:
+            coverage = "unknown"
+        else:
+            coverage = "gap"
+        by_slot = {
+            str(index): {
+                "git": info["git"],
+                "file": info["file"],
+                "repos": sorted(info["repos"]),
+            }
+            for index, info in sorted(bucket["by_slot"].items())
+        }
+        pretty = _pretty(day)
+        covered[iso] = DayCoverage(
+            day=iso,
+            coverage=coverage,
+            observed_slots=observed,
+            observed_slot_indexes=observed_indexes,
+            slots=len(slot_indexes),
+            slot_indexes=slot_indexes,
+            commits=bucket["commits"],
+            files=len(bucket["files"]),
+            agents=bucket["agents"],
+            repos=tuple(sorted(bucket["repos"])),
+            by_slot=by_slot,
+            intervals=intervals,
+            read_at=read_at,
+            paint=_paint(coverage, observed),
+            label=_day_label(pretty, coverage, observed, intervals, read_at, day_start, day_end),
+            headline=_day_headline(coverage, observed) if day == end else "",
+        )
+        day += timedelta(days=1)
+    return covered
+
+
+def scan_status_text(state: ScanState, timer_enabled: bool) -> str:
+    """Settings sentence. The timer clause says enabled or off, and never a cadence."""
+    timer = "Timer enabled." if timer_enabled else "Timer off."
+    marks = (state.last_files, state.last_git, state.last_agents)
+    if state.last_attempt_at is None or any(mark not in _MARKS for mark in marks):
+        return f"No successful scan yet. {timer}"
+    if all(mark == "off" for mark in marks):
+        return f"No successful scan yet. {timer}"
+
+    stamp = _stamp(state.last_attempt_at)
+    clocks = {
+        "files": state.files_ok_at,
+        "git": state.git_ok_at,
+        "agents": state.agents_ok_at,
+    }
+    enabled = [(name, mark) for name, mark in zip(_SOURCE_ORDER, marks) if mark != "off"]
+
+    def clock_sentences(names: Sequence[str]) -> List[str]:
+        lines = []
+        for name in names:
+            ok_at = clocks[name]
+            if ok_at is not None:
+                lines.append(f"{_SOURCE_TITLE[name]} last ok {_stamp(ok_at)}.")
+            elif name == "files":
+                lines.append("No successful file scan yet.")
+        return lines
+
+    if all(mark == "ok" for _, mark in enabled):
+        return f"Last scan {stamp}. {timer}"
+
+    failed = [name for name, mark in enabled if mark == "failed"]
+    if all(mark == "failed" for _, mark in enabled):
+        pieces = [f"Last scan failed {stamp}."]
+    else:
+        parts = ", ".join(f"{name} {mark}" for name, mark in enabled)
+        pieces = [f"Last scan {stamp}, partial, {parts}."]
+    pieces.extend(clock_sentences(failed))
+    pieces.append(timer)
+    return " ".join(pieces)
+
+
+def week_clause(slot_count: int) -> str:
+    """Opening clause of the review sentence. slot_count is observed slots, not hours."""
+    if slot_count == 0:
+        return "No half-hours sampled this week on this Omarchy box"
+    if slot_count == 1:
+        return "1 half-hour sampled this week on this Omarchy box"
+    return f"{slot_count} half-hours sampled this week on this Omarchy box"
