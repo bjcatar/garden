@@ -677,6 +677,78 @@ def _project_payload(name: str, rows: Sequence[tuple], limit_windows: Optional[i
     }
 
 
+_DOT = " \u00b7 "
+
+
+def _hour_text(hours: float) -> str:
+    whole = int(hours)
+    if hours == whole:
+        return str(whole)
+    return str(hours)
+
+
+def _day_caption(day: Mapping[str, Any]) -> str:
+    if day.get("future"):
+        return ""
+    coverage = day.get("coverage") or ""
+    observed = day.get("observedSlots") or 0
+    if coverage in ("unknown", "gap"):
+        return ""
+    if coverage == "sampled" and observed <= 0:
+        return ""
+    if coverage and coverage not in ("observed", "empty", "sampled"):
+        return ""
+    if observed <= 0:
+        return ""
+    return _hour_text(hours_active(observed))
+
+
+def _window_line(item: Mapping[str, Any]) -> str:
+    sources = list(item.get("sources") or [])
+    line = f"{item.get('weekday') or ''} {item.get('label') or ''}"
+    names = list(item.get("projects") or [])
+    if names:
+        line += _DOT + ", ".join(names)
+    if len(sources) == 1 and sources[0] == "git":
+        line += _DOT + "commit only"
+    elif not names and "agent" in sources:
+        line += _DOT + "agent"
+    also = list(item.get("also") or [])
+    if also:
+        line += _DOT + "also " + ", ".join(also)
+    return line
+
+
+def _commit_line(item: Mapping[str, Any]) -> str:
+    bits = [item.get("subject") or item.get("hash") or "commit"]
+    if item.get("repo"):
+        bits.append(item["repo"])
+    if item.get("label"):
+        bits.append(item["label"])
+    return _DOT.join(bits)
+
+
+def _touched_line(project: Mapping[str, Any]) -> str:
+    touched = project.get("lastTouched")
+    if not touched:
+        return ""
+    when = f"Last touched {touched.get('day') or ''} {touched.get('label') or ''}"
+    if touched.get("path"):
+        when += _DOT + touched["path"]
+    days = project.get("daysActive") or 0
+    if not days:
+        return when
+    noun = "day" if days == 1 else "days"
+    return f"{when}{_DOT}{days} {noun} active"
+
+
+def _week_headline(days_active: int, machine_hours: float) -> str:
+    if days_active == 0 and machine_hours == 0:
+        return "No observed time on this machine this week"
+    noun = "day" if days_active == 1 else "days"
+    return f"{days_active} {noun} active{_DOT}{_hour_text(machine_hours)}h on this machine"
+
+
 def summarize_activity(
     events: Optional[Iterable[Any]],
     today: date,
@@ -738,6 +810,7 @@ def summarize_activity(
             label = coverage.get(when.isoformat())
             if isinstance(label, str) and label:
                 entry["coverage"] = label
+        entry["caption"] = _day_caption(entry)
         days_out.append(entry)
 
     week_rows = [row for row in rows if in_week(row[0])]
@@ -761,20 +834,73 @@ def summarize_activity(
     _attach_also(week_projects, rows)
     _attach_also(projects, rows)
 
-    return {
-        "week": {
-            "start": week_start.isoformat(),
-            "end": week_end.isoformat(),
-            "daysActive": sum(1 for day in days_out if day["observedSlots"] > 0),
-            "machineSlots": len(observed),
-            "machineHours": hours_active(len(observed)),
-            "days": days_out,
-            "spans": _week_spans(rows, week_start, today),
-            "projects": week_projects,
-            "recentCommits": [_commit_payload(row) for row in _deduped_commits(week_rows)[:_WEEK_COMMIT_CAP]],
-        },
-        "projects": projects,
+    spans = _week_spans(rows, week_start, today)
+    for span in spans:
+        span["line"] = _window_line(span)
+    recent = [_commit_payload(row) for row in _deduped_commits(week_rows)[:_WEEK_COMMIT_CAP]]
+    for item in recent:
+        item["line"] = _commit_line(item)
+    for project in week_projects:
+        project["touched"] = _touched_line(project)
+        for window in project["windows"]:
+            window["line"] = _window_line(window)
+    for project in projects:
+        project["touched"] = _touched_line(project)
+        for window in project["windows"]:
+            window["line"] = _window_line(window)
+        for item in project["recentCommits"]:
+            item["line"] = _commit_line(item)
+
+    days_active = sum(1 for day in days_out if day["observedSlots"] > 0)
+    machine_hours = hours_active(len(observed))
+
+    def week_note(report: Dict[str, Any]) -> str:
+        blocks = [
+            "# This week",
+            f"{report['start']} to {report['end']}",
+            report["headline"],
+            report["overlap"],
+            "## Days",
+        ]
+        day_lines = []
+        for day in report["days"]:
+            caption = day["caption"]
+            if caption:
+                day_lines.append(f"{day['weekday']} {day['date']}. {caption}h")
+            else:
+                day_lines.append(f"{day['weekday']} {day['date']}.")
+        blocks.append("\n".join(day_lines))
+        if report["spans"]:
+            blocks.append("## Windows")
+            blocks.append("\n".join(span["line"] for span in report["spans"]))
+        if report["recentCommits"]:
+            blocks.append("## Recent commits")
+            blocks.append("\n".join(item["line"] for item in report["recentCommits"]))
+        if report["projects"]:
+            blocks.append("## Projects")
+            for project in report["projects"]:
+                blocks.append(f"### {project['name']}")
+                lines = [project["touched"]]
+                lines.extend(window["line"] for window in project["windows"])
+                blocks.append("\n".join(lines))
+        blocks.append("## Note")
+        return "\n\n".join(blocks) + "\n\n"
+
+    week = {
+        "start": week_start.isoformat(),
+        "end": week_end.isoformat(),
+        "daysActive": days_active,
+        "machineSlots": len(observed),
+        "machineHours": machine_hours,
+        "headline": _week_headline(days_active, machine_hours),
+        "overlap": "Project windows overlap. They are not added into hours on this machine.",
+        "days": days_out,
+        "spans": spans,
+        "projects": week_projects,
+        "recentCommits": recent,
     }
+    week["markdown"] = week_note(week)
+    return {"week": week, "projects": projects}
 
 
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")

@@ -17,6 +17,135 @@ import garden_lib as g  # noqa: E402
 
 TODAY = date(2026, 10, 24)  # Saturday. This week is Mon 19 through Sun 25.
 
+OVERLAP_NOTE = """\
+# This week
+
+2026-10-19 to 2026-10-25
+
+1 day active · 1.5h on this machine
+
+Project windows overlap. They are not added into hours on this machine.
+
+## Days
+
+Mon 2026-10-19.
+Tue 2026-10-20.
+Wed 2026-10-21.
+Thu 2026-10-22.
+Fri 2026-10-23.
+Sat 2026-10-24. 1.5h
+Sun 2026-10-25.
+
+## Windows
+
+Sat 14:00-14:30 · garden
+Sat 14:30-15:00 · garden, other
+Sat 15:00-15:30 · other
+
+## Projects
+
+### other
+
+Last touched 2026-10-24 15:00 · a.py · 1 day active
+Sat 14:30-15:30 · also garden
+
+### garden
+
+Last touched 2026-10-24 14:30 · a.py · 1 day active
+Sat 14:00-15:00 · also other
+
+## Note
+
+"""
+
+GIT_ONLY_NOTE = """\
+# This week
+
+2026-10-19 to 2026-10-25
+
+No observed time on this machine this week
+
+Project windows overlap. They are not added into hours on this machine.
+
+## Days
+
+Mon 2026-10-19.
+Tue 2026-10-20.
+Wed 2026-10-21.
+Thu 2026-10-22.
+Fri 2026-10-23.
+Sat 2026-10-24.
+Sun 2026-10-25.
+
+## Windows
+
+Tue 05:00-05:30 · old · commit only
+
+## Recent commits
+
+import · old · 05:00
+
+## Projects
+
+### old
+
+Last touched 2026-10-20 05:00
+Tue 05:00-05:30 · commit only
+
+## Note
+
+"""
+
+AGENT_NOTE = """\
+# This week
+
+2026-10-19 to 2026-10-25
+
+1 day active · 0.5h on this machine
+
+Project windows overlap. They are not added into hours on this machine.
+
+## Days
+
+Mon 2026-10-19.
+Tue 2026-10-20.
+Wed 2026-10-21.
+Thu 2026-10-22. 0.5h
+Fri 2026-10-23.
+Sat 2026-10-24.
+Sun 2026-10-25.
+
+## Windows
+
+Thu 04:00-04:30 · agent
+
+## Note
+
+"""
+
+EMPTY_NOTE = """\
+# This week
+
+2026-10-19 to 2026-10-25
+
+No observed time on this machine this week
+
+Project windows overlap. They are not added into hours on this machine.
+
+## Days
+
+Mon 2026-10-19.
+Tue 2026-10-20.
+Wed 2026-10-21.
+Thu 2026-10-22.
+Fri 2026-10-23.
+Sat 2026-10-24.
+Sun 2026-10-25.
+
+## Note
+
+"""
+
 
 def file(day, slot, repo, path="a.py"):
     return {"type": "file", "day": day, "slot": slot, "repo": repo, "path": path}
@@ -38,7 +167,8 @@ class ActivitySummaryTests(unittest.TestCase):
             file("2026-10-24", 29, "other"),
             file("2026-10-24", 30, "other"),
         ]
-        week = g.summarize_activity(events, TODAY)["week"]
+        out = g.summarize_activity(events, TODAY)
+        week = out["week"]
         self.assertEqual(week["machineSlots"], 3)
         self.assertEqual(week["machineHours"], 1.5)
         self.assertEqual(week["daysActive"], 1)
@@ -51,6 +181,40 @@ class ActivitySummaryTests(unittest.TestCase):
         for project in week["projects"]:
             self.assertNotIn("hours", project)
             self.assertNotIn("machineHours", project)
+        self.assertEqual(week["headline"], "1 day active · 1.5h on this machine")
+        self.assertEqual(
+            week["overlap"],
+            "Project windows overlap. They are not added into hours on this machine.",
+        )
+        self.assertEqual([day["caption"] for day in week["days"]], ["", "", "", "", "", "1.5", ""])
+        self.assertEqual(
+            [item["line"] for item in week["spans"]],
+            [
+                "Sat 14:00-14:30 · garden",
+                "Sat 14:30-15:00 · garden, other",
+                "Sat 15:00-15:30 · other",
+            ],
+        )
+        self.assertEqual(week["projects"][0]["touched"], "Last touched 2026-10-24 15:00 · a.py · 1 day active")
+        self.assertEqual(week["projects"][0]["windows"][0]["line"], "Sat 14:30-15:30 · also garden")
+        self.assertEqual(week["projects"][1]["touched"], "Last touched 2026-10-24 14:30 · a.py · 1 day active")
+        self.assertEqual(week["projects"][1]["windows"][0]["line"], "Sat 14:00-15:00 · also other")
+        self.assertEqual(
+            [(item["touched"], [window["line"] for window in item["windows"]]) for item in out["projects"]],
+            [(item["touched"], [window["line"] for window in item["windows"]]) for item in week["projects"]],
+        )
+        note = week["markdown"]
+        self.assertEqual(note, OVERLAP_NOTE)
+        self.assertEqual(note.count("1.5h"), 2)
+        self.assertNotIn("2h", note)
+        self.assertNotIn("2.0h", note)
+        self.assertIn(week["headline"], note)
+        for item in week["spans"]:
+            self.assertIn(item["line"], note)
+        for project in week["projects"]:
+            self.assertIn(project["touched"], note)
+            for window in project["windows"]:
+                self.assertIn(window["line"], note)
 
     def test_consecutive_slots_are_one_window_and_a_gap_splits(self):
         events = [
@@ -75,6 +239,17 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertEqual(window["sources"], ["git"])
         self.assertEqual(week["recentCommits"][0]["subject"], "import")
         self.assertEqual(week["recentCommits"][0]["repo"], "old")
+        self.assertEqual(week["recentCommits"][0]["line"], "import · old · 05:00")
+        self.assertNotIn("line", week["projects"][0]["recentCommits"][0])
+        self.assertEqual(out["projects"][0]["recentCommits"][0]["line"], "import · old · 05:00")
+        self.assertEqual(out["projects"][0]["touched"], "Last touched 2026-10-20 05:00")
+        self.assertEqual(window["line"], "Tue 05:00-05:30 · commit only")
+        self.assertEqual(out["projects"][0]["windows"][0]["line"], "Tue 05:00-05:30 · commit only")
+        self.assertEqual(week["headline"], "No observed time on this machine this week")
+        self.assertEqual([day["caption"] for day in week["days"]], ["", "", "", "", "", "", ""])
+        note = week["markdown"]
+        self.assertEqual(note, GIT_ONLY_NOTE)
+        self.assertEqual(note.count("import · old · 05:00"), 1)
 
     def test_file_and_git_in_one_slot_are_one_observed_window(self):
         events = [
@@ -92,6 +267,13 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertEqual(out["week"]["daysActive"], 1)
         self.assertEqual(out["projects"], [])
         self.assertEqual(out["week"]["projects"], [])
+        self.assertEqual(out["week"]["headline"], "1 day active · 0.5h on this machine")
+        self.assertEqual([day["caption"] for day in out["week"]["days"]], ["", "", "", "0.5", "", "", ""])
+        self.assertEqual(out["week"]["spans"][0]["line"], "Thu 04:00-04:30 · agent")
+        note = out["week"]["markdown"]
+        self.assertEqual(note, AGENT_NOTE)
+        self.assertNotIn("## Projects", note)
+        self.assertNotIn("## Recent commits", note)
 
     def test_week_is_monday_through_sunday_and_tomorrow_is_future(self):
         events = [
@@ -134,18 +316,33 @@ class ActivitySummaryTests(unittest.TestCase):
     def test_recent_commits_keep_the_newest_of_a_hash_and_cap_at_eight(self):
         events = [commit("2026-10-24", slot, "garden", f"h{slot}") for slot in range(10)]
         events.append(commit("2026-10-24", 1, "garden", "h9", "older copy"))
-        commits = g.summarize_activity(events, TODAY)["week"]["recentCommits"]
+        week = g.summarize_activity(events, TODAY)["week"]
+        commits = week["recentCommits"]
         self.assertEqual(len(commits), 8)
         self.assertEqual(commits[0]["slot"], 9)
         self.assertEqual(commits[0]["subject"], "edit")
         self.assertNotIn("older copy", [item["subject"] for item in commits])
+        note = week["markdown"]
+        self.assertNotIn("older copy", note)
+        marker = "## Recent commits\n\n"
+        block = note[note.index(marker) + len(marker):]
+        block = block[:block.index("\n\n")]
+        self.assertEqual(len(block.split("\n")), 8)
 
     def test_year_project_keeps_the_latest_windows_only(self):
         events = [file("2026-10-24", slot, "garden") for slot in range(0, 20, 2)]
-        windows = g.summarize_activity(events, TODAY)["projects"][0]["windows"]
+        out = g.summarize_activity(events, TODAY)
+        windows = out["projects"][0]["windows"]
         self.assertEqual(len(windows), 8)
         self.assertEqual(windows[-1]["startSlot"], 18)
-        self.assertEqual(len(g.summarize_activity(events, TODAY)["week"]["projects"][0]["windows"]), 10)
+        self.assertEqual(len(out["week"]["projects"][0]["windows"]), 10)
+        note = out["week"]["markdown"]
+        self.assertIn("Sat 00:00-00:30", note)
+        self.assertIn("Sat 01:00-01:30", note)
+        self.assertNotIn(0, [item["startSlot"] for item in windows])
+        self.assertNotIn(2, [item["startSlot"] for item in windows])
+        self.assertEqual(out["week"]["headline"], "1 day active · 5h on this machine")
+        self.assertNotIn("5.0", note)
 
     def test_coverage_is_copied_and_not_invented(self):
         out = g.summarize_activity([], TODAY, {"2026-10-19": "unknown", "2026-10-20": "observed"})
@@ -191,6 +388,55 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertEqual(out["week"]["machineHours"], 0)
         self.assertEqual(out["projects"], [])
         self.assertEqual(len(out["week"]["days"]), 7)
+        self.assertEqual([day["caption"] for day in out["week"]["days"]], ["", "", "", "", "", "", ""])
+        self.assertEqual(out["week"]["markdown"], EMPTY_NOTE)
+
+    def test_square_captions_skip_coverage_that_is_not_observed_time(self):
+        events = [
+            file("2026-10-19", 4, "garden"),
+            file("2026-10-20", 4, "garden"),
+            file("2026-10-21", 4, "garden"),
+            file("2026-10-22", 4, "garden"),
+            file("2026-10-24", 4, "garden"),
+            file("2026-10-24", 5, "garden"),
+        ]
+        coverage = {
+            "2026-10-19": "unknown",
+            "2026-10-20": "gap",
+            "2026-10-21": "sampled",
+            "2026-10-22": "git-history-only",
+            "2026-10-23": "observed",
+            "2026-10-24": "empty",
+        }
+        week = g.summarize_activity(events, TODAY, coverage)["week"]
+        self.assertEqual(
+            [day["caption"] for day in week["days"]],
+            ["", "", "0.5", "", "", "1", ""],
+        )
+        self.assertEqual(week["days"][2]["observedSlots"], 1)
+        self.assertEqual(week["days"][3]["observedSlots"], 1)
+        self.assertEqual(week["headline"], "4 days active · 2.5h on this machine")
+        self.assertNotIn("1.0", week["markdown"])
+        self.assertNotIn("2.0", week["markdown"])
+        self.assertIn("Tue 2026-10-20.\n", week["markdown"])
+        self.assertIn("Wed 2026-10-21. 0.5h\n", week["markdown"])
+        self.assertIn("Thu 2026-10-22.\n", week["markdown"])
+        self.assertIn("Sat 2026-10-24. 1h\n", week["markdown"])
+        self.assertIn(week["headline"], week["markdown"])
+
+    def test_a_dashed_subject_stays_under_the_week_heading(self):
+        events = [commit("2026-10-24", 10, "garden", "abc", "- drop the flag")]
+        note = g.summarize_activity(events, TODAY)["week"]["markdown"]
+        self.assertTrue(note.startswith("# This week\n"))
+        self.assertIn("- drop the flag · garden · 05:00", note)
+
+    def test_the_same_events_repeat_the_same_note(self):
+        events = [file("2026-10-24", 28, "garden"), file("2026-10-24", 30, "other")]
+        first = g.summarize_activity(events, TODAY)["week"]["markdown"]
+        second = g.summarize_activity(events, TODAY)["week"]["markdown"]
+        self.assertEqual(first, second)
+        self.assertTrue(first.startswith("# This week\n"))
+        self.assertTrue(first.endswith("## Note\n\n"))
 
 
 def load_scan():
@@ -221,6 +467,10 @@ class HeatmapActivityTests(unittest.TestCase):
         self.assertNotIn("hours", snap["activity"]["projects"][0])
         self.assertEqual(snap["days"][today]["observedSlots"], 1)
         self.assertTrue(snap["days"][today]["coverage"])
+        note = snap["activity"]["week"]["markdown"]
+        self.assertTrue(note.startswith("# This week\n"))
+        self.assertTrue(note.endswith("## Note\n\n"))
+        self.assertIn(snap["activity"]["week"]["headline"], note)
 
 
 if __name__ == "__main__":
