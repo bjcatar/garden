@@ -211,7 +211,7 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertIn(week["headline"], note)
         self.assertEqual(
             week["copyHint"],
-            "Markdown for Obsidian. 2026-10-19 to 2026-10-25. Days, 2 projects, and a blank Note.",
+            "Markdown note. 2026-10-19 to 2026-10-25. Days, 2 projects, and a blank Note.",
         )
         self.assertNotIn(week["headline"], week["copyHint"])
         self.assertNotIn("1.5", week["copyHint"])
@@ -258,7 +258,7 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertEqual(note.count("import · old · 05:00"), 1)
         self.assertEqual(
             week["copyHint"],
-            "Markdown for Obsidian. 2026-10-19 to 2026-10-25. Days, 1 project, 1 recent commit, and a blank Note.",
+            "Markdown note. 2026-10-19 to 2026-10-25. Days, 1 project, 1 recent commit, and a blank Note.",
         )
 
     def test_file_and_git_in_one_slot_are_one_observed_window(self):
@@ -286,7 +286,7 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertNotIn("## Recent commits", note)
         self.assertEqual(
             out["week"]["copyHint"],
-            "Markdown for Obsidian. 2026-10-19 to 2026-10-25. Days and a blank Note.",
+            "Markdown note. 2026-10-19 to 2026-10-25. Days and a blank Note.",
         )
         self.assertNotIn("0.5", out["week"]["copyHint"])
 
@@ -409,7 +409,7 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertEqual(out["week"]["markdown"], EMPTY_NOTE)
         self.assertEqual(
             out["week"]["copyHint"],
-            "Markdown for Obsidian. 2026-10-19 to 2026-10-25. Days and a blank Note.",
+            "Markdown note. 2026-10-19 to 2026-10-25. Days and a blank Note.",
         )
 
     def test_square_captions_skip_coverage_that_is_not_observed_time(self):

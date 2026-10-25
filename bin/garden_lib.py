@@ -903,7 +903,7 @@ def summarize_activity(
             detail = f"{bits[0]} and {bits[1]}"
         else:
             detail = ", ".join(bits[:-1]) + ", and " + bits[-1]
-        return f"Markdown for Obsidian. {report['start']} to {report['end']}. {detail}."
+        return f"Markdown note. {report['start']} to {report['end']}. {detail}."
 
     week = {
         "start": week_start.isoformat(),
