@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional, Sequen
 
 SLOT_MINUTES = 30
 SLOTS_PER_DAY = 24 * 60 // SLOT_MINUTES  # 48
+HEATMAP_FRESH_SECONDS = 15 * 60
 MAX_FILE_BYTES = 2 * 1024 * 1024
 CODE_SUFFIXES = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".qml", ".rs", ".go", ".c", ".h", ".cpp",
@@ -921,6 +922,122 @@ def summarize_activity(
     week["markdown"] = week_note(week)
     week["copyHint"] = week_copy_hint(week)
     return {"week": week, "projects": projects}
+
+
+def week_markdown(week: Mapping[str, Any]) -> str:
+    text = week.get("markdown") if isinstance(week, Mapping) else None
+    if isinstance(text, str) and text.startswith("# This week\n"):
+        return text
+    return ""
+
+
+def heatmap_is_fresh(
+    snap: Mapping[str, Any],
+    now: datetime,
+    *,
+    fresh_seconds: int = HEATMAP_FRESH_SECONDS,
+) -> bool:
+    raw = snap.get("generatedAt") if isinstance(snap, Mapping) else None
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    try:
+        generated = datetime.fromisoformat(raw.strip())
+    except ValueError:
+        return False
+    if generated.tzinfo is not None or now.tzinfo is not None:
+        return False
+    age = (now - generated).total_seconds()
+    if age < -60:
+        return False
+    return age <= fresh_seconds
+
+
+def week_summary(week: Mapping[str, Any]) -> Dict[str, Any]:
+    summary: Dict[str, Any] = {
+        "range": {"start": week.get("start"), "end": week.get("end")},
+        "daysActive": week.get("daysActive", 0),
+    }
+    if "machineSlots" in week:
+        summary["machineSlots"] = week["machineSlots"]
+    if "machineHours" in week:
+        summary["machineHours"] = week["machineHours"]
+    projects_out: List[Dict[str, Any]] = []
+    for project in week.get("projects") or []:
+        if not isinstance(project, Mapping):
+            continue
+        item: Dict[str, Any] = {"name": project.get("name") or ""}
+        if "daysActive" in project:
+            item["daysActive"] = project["daysActive"]
+        item["lastTouched"] = dict(project["lastTouched"]) if isinstance(project.get("lastTouched"), Mapping) else {}
+        item["windows"] = [
+            _window_fields(window)
+            for window in (project.get("windows") or [])
+            if isinstance(window, Mapping)
+        ]
+        projects_out.append(item)
+    summary["projects"] = projects_out
+    commits = [
+        _commit_fields(item)
+        for item in (week.get("recentCommits") or [])
+        if isinstance(item, Mapping)
+    ]
+    if commits:
+        summary["recentCommits"] = commits
+    return summary
+
+
+def resume_markdown(week: Mapping[str, Any]) -> str:
+    blocks = [
+        "# Resume",
+        f"{week.get('start') or ''} to {week.get('end') or ''}",
+    ]
+    headline = week.get("headline")
+    if isinstance(headline, str) and headline:
+        blocks.append(headline)
+    project_lines: List[str] = []
+    for project in week.get("projects") or []:
+        if not isinstance(project, Mapping):
+            continue
+        name = str(project.get("name") or "")
+        touched = project.get("touched") if isinstance(project.get("touched"), str) else ""
+        if not touched:
+            touched = _touched_line(project)
+        head = f"{name}{_DOT}{touched}" if name and touched else (name or touched)
+        if head:
+            project_lines.append(head)
+        for window in project.get("windows") or []:
+            if not isinstance(window, Mapping):
+                continue
+            line = window.get("line") if isinstance(window.get("line"), str) and window.get("line") else _window_line(window)
+            if line:
+                project_lines.append(line)
+    if project_lines:
+        blocks.append("## Projects\n" + "\n".join(project_lines))
+    commit_lines: List[str] = []
+    for item in week.get("recentCommits") or []:
+        if not isinstance(item, Mapping):
+            continue
+        line = item.get("line") if isinstance(item.get("line"), str) and item.get("line") else _commit_line(item)
+        commit_lines.append(line)
+    if commit_lines:
+        blocks.append("## Recent commits\n" + "\n".join(commit_lines))
+    return "\n\n".join(blocks) + "\n"
+
+
+def _window_fields(window: Mapping[str, Any]) -> Dict[str, Any]:
+    kept: Dict[str, Any] = {}
+    for key in ("day", "weekday", "label", "startSlot", "endSlot", "sources", "also"):
+        if key in window:
+            kept[key] = window[key]
+    return kept
+
+
+def _commit_fields(item: Mapping[str, Any]) -> Dict[str, Any]:
+    kept: Dict[str, Any] = {}
+    for key in ("day", "slot", "label", "hash", "subject", "repo"):
+        if key in item:
+            kept[key] = item[key]
+    return kept
 
 
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
