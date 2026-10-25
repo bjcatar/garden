@@ -108,7 +108,7 @@ Panel {
     }
     var omarchyPath = Quickshell.env("OMARCHY_PATH") || "/usr/share/omarchy"
     Quickshell.execDetached([omarchyPath + "/bin/omarchy-clipboard-paste-text", "--copy-only", markdown])
-    root.gardenNotify("Week note copied. Paste it into Obsidian.")
+    root.gardenNotify("Week note copied. Paste into your notes.")
     weekCopied = true
     weekCopiedTimer.restart()
   }
