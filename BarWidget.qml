@@ -1,12 +1,10 @@
 // Garden bar widget.
 // - Property names cannot begin with an uppercase letter.
-// - IpcHandler needs import Quickshell.Io.
 // - Do not set BarIconButton.active (that is the urgent/orange color).
 // - Panel must use manageIpc: false (IPC lives here).
+// - Keep open, close, and opened on this root. shell toggle finds the panel through them.
 
 import QtQuick
-import Quickshell
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -41,6 +39,18 @@ BarWidget {
     if (panelLoader.item && panelLoader.item.refresh) panelLoader.item.refresh()
   }
 
+  function weekText() {
+    var item = panelLoader.item
+    var markdown = item && item.weekReport ? item.weekReport.markdown : ""
+    return typeof markdown === "string" ? markdown : ""
+  }
+
+  function resumeText() {
+    var item = panelLoader.item
+    var markdown = item && item.weekReport ? item.weekReport.resume : ""
+    return typeof markdown === "string" ? markdown : ""
+  }
+
   function togglePanel() {
     if (panelLoader.item && panelLoader.item.toggle) panelLoader.item.toggle()
   }
@@ -67,7 +77,7 @@ BarWidget {
     }
   }
 
-  IpcHandler {
+  ShellIpc {
     target: "bjcatar.garden"
     function refresh(): void { root.refresh() }
     function open(): void { root.open() }
@@ -75,6 +85,8 @@ BarWidget {
     function show(): void { root.open() }
     function hide(): void { root.close() }
     function toggle(): void { root.togglePanel() }
+    function call(): string { return root.weekText() }
+    function resume(): string { return root.resumeText() }
   }
 
   // Same slot as Agents/Bluetooth: one Nerd Font mark, always readable.
