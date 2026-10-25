@@ -36,15 +36,15 @@ One themed Nerd Font sprout, same slot as Bluetooth. Hover is the sampled half-h
 
 ## Agent shell
 
-Garden registers the IPC target `bjcatar.garden` with `ShellIpc`, the same type the clock uses. The running shell answers on its own socket.
+Garden registers the IPC target `bjcatar.garden` with `IpcHandler` from `Quickshell.Io`, the same type the clock uses. The running shell answers on its own socket.
 
 ```bash
-omarchy-shell shell toggle bjcatar.garden
 omarchy-shell bjcatar.garden toggle
-omarchy-shell bjcatar.garden open
-omarchy-shell bjcatar.garden close
 omarchy-shell bjcatar.garden call
 omarchy-shell bjcatar.garden resume
+omarchy-shell bjcatar.garden open
+omarchy-shell bjcatar.garden close
+omarchy-shell shell toggle bjcatar.garden
 ```
 
 `omarchy shell` runs `omarchy-shell`, so `omarchy shell shell toggle bjcatar.garden` is the same toggle. The second `shell` is the IPC target. `omarchy shell toggle bjcatar.garden` does not reach Garden.
