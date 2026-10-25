@@ -146,6 +146,51 @@ Sun 2026-10-25.
 
 """
 
+OVERLAP_RESUME = """\
+# Resume
+
+2026-10-19 to 2026-10-25
+
+1 day active · 1.5h on this machine
+
+## Projects
+other · Last touched 2026-10-24 15:00 · a.py · 1 day active
+Sat 14:30-15:30 · also garden
+garden · Last touched 2026-10-24 14:30 · a.py · 1 day active
+Sat 14:00-15:00 · also other
+"""
+
+GIT_ONLY_RESUME = """\
+# Resume
+
+2026-10-19 to 2026-10-25
+
+No observed time on this machine this week
+
+## Projects
+old · Last touched 2026-10-20 05:00
+Tue 05:00-05:30 · commit only
+
+## Recent commits
+import · old · 05:00
+"""
+
+AGENT_RESUME = """\
+# Resume
+
+2026-10-19 to 2026-10-25
+
+1 day active · 0.5h on this machine
+"""
+
+EMPTY_RESUME = """\
+# Resume
+
+2026-10-19 to 2026-10-25
+
+No observed time on this machine this week
+"""
+
 
 def file(day, slot, repo, path="a.py"):
     return {"type": "file", "day": day, "slot": slot, "repo": repo, "path": path}
@@ -221,6 +266,12 @@ class ActivitySummaryTests(unittest.TestCase):
             self.assertIn(project["touched"], note)
             for window in project["windows"]:
                 self.assertIn(window["line"], note)
+        self.assertEqual(week["resume"], OVERLAP_RESUME)
+        self.assertEqual(week["resume"], g.resume_markdown(week))
+        self.assertTrue(week["resume"].startswith("# Resume\n"))
+        self.assertNotIn("## Note", week["resume"])
+        self.assertNotIn("## Days", week["resume"])
+        self.assertNotIn("Obsidian", week["resume"])
 
     def test_consecutive_slots_are_one_window_and_a_gap_splits(self):
         events = [
@@ -260,6 +311,11 @@ class ActivitySummaryTests(unittest.TestCase):
             week["copyHint"],
             "Markdown note. 2026-10-19 to 2026-10-25. Days, 1 project, 1 recent commit, and a blank Note.",
         )
+        self.assertEqual(week["resume"], GIT_ONLY_RESUME)
+        self.assertEqual(week["resume"], g.resume_markdown(week))
+        self.assertIn("## Projects", week["resume"])
+        self.assertIn("## Recent commits", week["resume"])
+        self.assertNotIn("## Note", week["resume"])
 
     def test_file_and_git_in_one_slot_are_one_observed_window(self):
         events = [
@@ -289,6 +345,9 @@ class ActivitySummaryTests(unittest.TestCase):
             "Markdown note. 2026-10-19 to 2026-10-25. Days and a blank Note.",
         )
         self.assertNotIn("0.5", out["week"]["copyHint"])
+        self.assertEqual(out["week"]["resume"], AGENT_RESUME)
+        self.assertNotIn("## Projects", out["week"]["resume"])
+        self.assertNotIn("## Note", out["week"]["resume"])
 
     def test_week_is_monday_through_sunday_and_tomorrow_is_future(self):
         events = [
@@ -411,6 +470,8 @@ class ActivitySummaryTests(unittest.TestCase):
             out["week"]["copyHint"],
             "Markdown note. 2026-10-19 to 2026-10-25. Days and a blank Note.",
         )
+        self.assertEqual(out["week"]["resume"], EMPTY_RESUME)
+        self.assertEqual(g.resume_markdown(out["week"]), EMPTY_RESUME)
 
     def test_square_captions_skip_coverage_that_is_not_observed_time(self):
         events = [
@@ -493,6 +554,8 @@ class HeatmapActivityTests(unittest.TestCase):
         self.assertTrue(note.endswith("## Note\n\n"))
         self.assertIn(snap["activity"]["week"]["headline"], note)
         hint = snap["activity"]["week"]["copyHint"]
+        self.assertTrue(snap["activity"]["week"]["resume"].startswith("# Resume\n"))
+        self.assertIn("garden", snap["activity"]["week"]["resume"])
         self.assertIn("1 project", hint)
         self.assertNotIn("recent commit", hint)
         self.assertNotIn(snap["activity"]["week"]["headline"], hint)

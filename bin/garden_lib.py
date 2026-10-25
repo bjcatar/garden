@@ -921,6 +921,7 @@ def summarize_activity(
     }
     week["markdown"] = week_note(week)
     week["copyHint"] = week_copy_hint(week)
+    week["resume"] = resume_markdown(week)
     return {"week": week, "projects": projects}
 
 
