@@ -661,10 +661,115 @@ def _flag_value(argv: List[str], flag: str) -> Optional[str]:
     return ""
 
 
+WEEK_EXPORTS = ("--week-md", "--week-json", "--resume-md", "--write-week")
+WEEK_NOTE_NAME = "this-week.md"
+MISSING_HEATMAP = "No heatmap yet. Needs a scan."
+MISSING_NOTE = "No week note in the heatmap. Needs a scan."
+SCAN_NOTE = "Scan finished without a week note."
+HELP = """\
+usage: garden-scan [flags]
+
+Scan watched folders into ~/.local/state/omarchy/garden/heatmap.json.
+
+Week flags read that heatmap when generatedAt is at most 15 minutes old.
+They scan first when the file is older or is not valid JSON. They do not
+scan when the file or the week note is missing. Add --scan to scan first.
+Project windows overlap. These flags do not add them into machine hours.
+
+  --week-md       print activity.week.markdown
+  --week-json     print a compact JSON summary of this week
+  --resume-md     print a short handoff for an agent prompt
+  --write-week    overwrite ~/.local/state/omarchy/garden/this-week.md
+  --scan          scan before a week flag
+  --stdout        scan, then print today's slot counts as JSON
+  --help          show this help
+
+  --add-root PATH
+  --remove-root PATH
+  --mute REPO
+  --unmute REPO
+  --settings-sheet [--offers]
+  --install-timer [--prefix DIR]
+  --uninstall-timer [--prefix DIR]
+  --timer-status
+"""
+
+
+def _selected_exports(argv: List[str]) -> List[str]:
+    return [flag for flag in WEEK_EXPORTS if flag in argv]
+
+
+def _load_heatmap() -> Optional[Dict[str, Any]]:
+    if not HEATMAP_PATH.is_file():
+        return None
+    data = _read_json(HEATMAP_PATH, None)
+    return data if isinstance(data, dict) else None
+
+
+def _week_report(snap: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    activity = snap.get("activity")
+    if not isinstance(activity, dict):
+        return None
+    week = activity.get("week")
+    if not isinstance(week, dict) or not g.week_markdown(week):
+        return None
+    return week
+
+
+def _emit_week(mode: str, week: Dict[str, Any]) -> int:
+    if mode == "--week-md":
+        sys.stdout.write(g.week_markdown(week))
+        return 0
+    if mode == "--week-json":
+        json.dump(g.week_summary(week), sys.stdout, ensure_ascii=False, separators=(",", ":"))
+        sys.stdout.write("\n")
+        return 0
+    if mode == "--resume-md":
+        sys.stdout.write(g.resume_markdown(week))
+        return 0
+    if mode == "--write-week":
+        path = STATE_DIR / WEEK_NOTE_NAME
+        atomic_replace(path, g.week_markdown(week))
+        print(path)
+        return 0
+    print("Pass one of --week-md, --week-json, --resume-md, or --write-week.", file=sys.stderr)
+    return 2
+
+
+def cmd_export(mode: str, force_scan: bool) -> int:
+    snap = None if force_scan else _load_heatmap()
+    if snap is not None and g.heatmap_is_fresh(snap, datetime.now()):
+        week = _week_report(snap)
+        if week is None:
+            print(MISSING_NOTE, file=sys.stderr)
+            return 1
+        return _emit_week(mode, week)
+    if not force_scan and not HEATMAP_PATH.is_file():
+        print(MISSING_HEATMAP, file=sys.stderr)
+        return 1
+    scanned = with_lock(scan)
+    week = _week_report(scanned)
+    if week is None:
+        print(SCAN_NOTE, file=sys.stderr)
+        return 1
+    return _emit_week(mode, week)
+
+
 def main(argv: List[str]) -> int:
+    if "--help" in argv or "-h" in argv:
+        sys.stdout.write(HELP)
+        return 0
+
     prefix_raw = _flag_value(argv, "--prefix")
     prefix = Path(prefix_raw) if prefix_raw else None
     use_systemd = prefix is None
+
+    exports = _selected_exports(argv)
+    if len(exports) > 1 or (exports and "--stdout" in argv):
+        print("Pass one of --week-md, --week-json, --resume-md, or --write-week.", file=sys.stderr)
+        return 2
+    if exports:
+        return cmd_export(exports[0], "--scan" in argv)
 
     if "--install-timer" in argv:
         return install_timer(prefix, run_systemctl=use_systemd)

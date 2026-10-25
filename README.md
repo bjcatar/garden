@@ -59,7 +59,22 @@ Agent token totals are **not** squares and are not shown in the panel.
 | `~/.local/state/omarchy/garden/settings.json` | Roots, mutes, emails |
 | `~/.local/state/omarchy/garden/ledger.jsonl` | File, git, and agent events |
 | `~/.local/state/omarchy/garden/state.json` | File-walk windows and the last scan |
+| `~/.local/state/omarchy/garden/this-week.md` | Week note from `garden-scan --write-week` |
 | `~/.config/systemd/user/garden-scan.{service,timer}` | 15-minute scan (from `--install-timer`) |
+
+## Agents
+
+`garden-scan` can print this week without opening the panel. The week flags read `heatmap.json` when `generatedAt` is at most 15 minutes old. They scan first when that file is older or is not valid JSON. They do not scan when the file or the week note is missing. Add `--scan` to scan first. `--write-week` overwrites `this-week.md` in the garden state directory. It does not write an Obsidian vault.
+
+```bash
+python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --week-md
+python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --week-json
+python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --resume-md
+python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --write-week
+python3 ~/.config/omarchy/plugins/bjcatar.garden/bin/garden-scan --scan --resume-md
+```
+
+`--week-md` prints the same Markdown the panel copies. `--resume-md` is a shorter handoff for `omarchy agent prompt` or Cursor. `--week-json` repeats `machineHours` from the heatmap. It does not add project windows into that total.
 
 ## Uninstall
 
