@@ -86,14 +86,15 @@ Panel {
     selectedProject = ""
   }
 
-  function weekHeadline() {
-    var week = weekReport
-    if (!week) return "This week fills in after a scan."
-    if ((week.daysActive || 0) === 0 && (week.machineHours || 0) === 0)
-      return "No observed time on this machine this week"
-    var days = week.daysActive || 0
-    var noun = days === 1 ? "day" : "days"
-    return days + " " + noun + " active · " + week.machineHours + "h on this machine"
+  function copyWeek() {
+    var markdown = root.weekReport ? root.weekReport.markdown : ""
+    if (typeof markdown !== "string" || markdown.indexOf("# This week\n") !== 0) {
+      Quickshell.execDetached(["omarchy-notification-send", "This week fills in after a scan."])
+      return
+    }
+    var omarchyPath = Quickshell.env("OMARCHY_PATH") || "/usr/share/omarchy"
+    Quickshell.execDetached([omarchyPath + "/bin/omarchy-clipboard-paste-text", "--copy-only", markdown])
+    Quickshell.execDetached(["omarchy-notification-send", "Copied this week"])
   }
 
   function weekDayColor(day) {
@@ -107,40 +108,6 @@ Panel {
     if (coverage && coverage !== "observed" && coverage !== "git-history-only" && coverage !== "empty")
       return colorForSlots(0, "unknown")
     return colorForSlots(0, "observed")
-  }
-
-  function touchedLine(project) {
-    if (!project || !project.lastTouched) return ""
-    var touched = project.lastTouched
-    var when = "Last touched " + touched.day + " " + (touched.label || "")
-    if (touched.path) when += " · " + touched.path
-    var bits = [when]
-    if (project.daysActive) {
-      bits.push(project.daysActive + (project.daysActive === 1 ? " day active" : " days active"))
-    }
-    return bits.join(" · ")
-  }
-
-  function windowLine(item) {
-    if (!item) return ""
-    var sources = item.sources || []
-    var line = (item.weekday || "") + " " + (item.label || "")
-    var names = item.projects || []
-    if (names.length) line += " · " + names.join(", ")
-    if (sources.length === 1 && sources[0] === "git") line += " · commit only"
-    else if (!names.length && sources.indexOf("agent") >= 0) line += " · agent"
-    var also = item.also || []
-    if (also.length) line += " · also " + also.join(", ")
-    return line
-  }
-
-  function commitLine(item) {
-    if (!item) return ""
-    var subject = item.subject || item.hash || "commit"
-    var bits = [subject]
-    if (item.repo) bits.push(item.repo)
-    if (item.label) bits.push(item.label)
-    return bits.join(" · ")
   }
 
   onOpenedChanged: {
@@ -466,6 +433,7 @@ Panel {
       }
       onTextKey: function(t) {
         if (t === "r" || t === "R") root.refresh()
+        else if ((t === "c" || t === "C") && root.panelView === "week" && !root.settingsOpen) root.copyWeek()
       }
 
       Flickable {
@@ -612,9 +580,9 @@ Panel {
           }
 
           Text {
-            visible: root.panelView !== "year" && !root.settingsOpen && !!root.activityReport
+            visible: root.panelView !== "year" && !root.settingsOpen && text !== ""
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: "Project windows overlap. They are not added into hours on this machine."
+            text: root.weekReport ? (root.weekReport.overlap || "") : ""
             color: root.dim
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
@@ -628,17 +596,36 @@ Panel {
             width: parent.width - parent.leftPadding - parent.rightPadding
             spacing: Style.space(8)
 
-            Text {
+            Row {
               width: parent.width
-              text: {
-                var _ = root.dataRev
-                return root.weekHeadline()
+              spacing: Style.space(12)
+
+              Text {
+                width: parent.width - weekCopy.implicitWidth - parent.spacing
+                text: {
+                  var _ = root.dataRev
+                  return root.weekReport ? (root.weekReport.headline || "") : "This week fills in after a scan."
+                }
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+                wrapMode: Text.WordWrap
               }
-              color: root.contentForeground
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-              font.bold: true
-              wrapMode: Text.WordWrap
+
+              Text {
+                id: weekCopy
+                text: "Copy"
+                color: root.accent
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.copyWeek()
+                }
+              }
             }
 
             Row {
@@ -675,15 +662,7 @@ Panel {
                   Text {
                     width: 28
                     horizontalAlignment: Text.AlignHCenter
-                    text: {
-                      var coverage = modelData.coverage || ""
-                      if (modelData.future) return ""
-                      if (coverage === "unknown" || coverage === "gap") return ""
-                      if (coverage === "sampled" && (modelData.observedSlots || 0) <= 0) return ""
-                      if (coverage && coverage !== "observed" && coverage !== "empty" && coverage !== "sampled") return ""
-                      if ((modelData.observedSlots || 0) <= 0) return ""
-                      return String(Heatmap.hoursActive(modelData.observedSlots))
-                    }
+                    text: modelData.caption || ""
                     color: root.dim
                     font.family: root.contentFontFamily
                     font.pixelSize: 9
@@ -697,7 +676,7 @@ Panel {
               Text {
                 required property var modelData
                 width: weekBlock.width
-                text: root.windowLine(modelData)
+                text: modelData.line || ""
                 color: root.dim
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.caption
@@ -719,7 +698,7 @@ Panel {
               Text {
                 required property var modelData
                 width: weekBlock.width
-                text: root.commitLine(modelData)
+                text: modelData.line || ""
                 color: root.dim
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.caption
@@ -778,7 +757,7 @@ Panel {
                 }
                 Text {
                   width: parent.width
-                  text: root.touchedLine(projectRow.modelData)
+                  text: projectRow.modelData.touched || ""
                   color: root.dim
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption
@@ -794,7 +773,7 @@ Panel {
                     Text {
                       required property var modelData
                       width: projectBlock.width
-                      text: root.windowLine(modelData)
+                      text: modelData.line || ""
                       color: root.dim
                       font.family: root.contentFontFamily
                       font.pixelSize: Style.font.caption
@@ -806,7 +785,7 @@ Panel {
                     Text {
                       required property var modelData
                       width: projectBlock.width
-                      text: root.commitLine(modelData)
+                      text: modelData.line || ""
                       color: root.dim
                       font.family: root.contentFontFamily
                       font.pixelSize: Style.font.caption
