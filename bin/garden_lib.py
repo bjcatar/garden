@@ -886,6 +886,25 @@ def summarize_activity(
         blocks.append("## Note")
         return "\n\n".join(blocks) + "\n\n"
 
+    def week_copy_hint(report: Dict[str, Any]) -> str:
+        bits = ["Days"]
+        project_count = len(report["projects"])
+        commit_count = len(report["recentCommits"])
+        if project_count == 1:
+            bits.append("1 project")
+        elif project_count > 1:
+            bits.append(f"{project_count} projects")
+        if commit_count == 1:
+            bits.append("1 recent commit")
+        elif commit_count > 1:
+            bits.append(f"{commit_count} recent commits")
+        bits.append("a blank Note")
+        if len(bits) == 2:
+            detail = f"{bits[0]} and {bits[1]}"
+        else:
+            detail = ", ".join(bits[:-1]) + ", and " + bits[-1]
+        return f"Markdown for Obsidian. {report['start']} to {report['end']}. {detail}."
+
     week = {
         "start": week_start.isoformat(),
         "end": week_end.isoformat(),
@@ -900,6 +919,7 @@ def summarize_activity(
         "recentCommits": recent,
     }
     week["markdown"] = week_note(week)
+    week["copyHint"] = week_copy_hint(week)
     return {"week": week, "projects": projects}
 
 
