@@ -54,6 +54,7 @@ Panel {
   property bool pinToday: false
   property string panelView: "year"
   property bool weekCopied: false
+  property bool resumeCopied: false
   property string selectedProject: ""
   property bool yearPlaced: false
 
@@ -99,6 +100,11 @@ Panel {
     Quickshell.execDetached(["omarchy-notification-send", "Garden", body, "-g", "󰹢"])
   }
 
+  function pasteToClipboard(markdown) {
+    var omarchyPath = Quickshell.env("OMARCHY_PATH") || "/usr/share/omarchy"
+    Quickshell.execDetached([omarchyPath + "/bin/omarchy-clipboard-paste-text", "--copy-only", markdown])
+  }
+
   function copyWeek() {
     var markdown = root.weekReport ? root.weekReport.markdown : ""
     if (typeof markdown !== "string" || markdown.indexOf("# This week\n") !== 0) {
@@ -106,11 +112,23 @@ Panel {
       root.gardenNotify("This week fills in after a scan.")
       return
     }
-    var omarchyPath = Quickshell.env("OMARCHY_PATH") || "/usr/share/omarchy"
-    Quickshell.execDetached([omarchyPath + "/bin/omarchy-clipboard-paste-text", "--copy-only", markdown])
+    root.pasteToClipboard(markdown)
     root.gardenNotify("Week note copied. Paste into your notes.")
     weekCopied = true
     weekCopiedTimer.restart()
+  }
+
+  function copyResume() {
+    var markdown = root.weekReport ? root.weekReport.resume : ""
+    if (typeof markdown !== "string" || markdown.indexOf("# Resume\n") !== 0) {
+      resumeCopied = false
+      root.gardenNotify("This week fills in after a scan.")
+      return
+    }
+    root.pasteToClipboard(markdown)
+    root.gardenNotify("Resume copied. Paste it into an agent.")
+    resumeCopied = true
+    resumeCopiedTimer.restart()
   }
 
   function weekDayColor(day) {
@@ -129,6 +147,7 @@ Panel {
   onOpenedChanged: {
     if (opened) {
       weekCopied = false
+      resumeCopied = false
       yearPlaced = true
       settingsOpen = false
       panelView = "year"
@@ -142,6 +161,7 @@ Panel {
       })
     } else {
       weekCopied = false
+      resumeCopied = false
       settingsOpen = false
       if (rootField) rootField.focus = false
     }
@@ -199,6 +219,7 @@ Panel {
 
   function applySnapshot(parsed) {
     var previousNote = root.weekReport ? (root.weekReport.markdown || "") : ""
+    var previousResume = root.weekReport ? (root.weekReport.resume || "") : ""
     snapshot = parsed && typeof parsed === "object" ? parsed : {}
     var range = snapshot.range || {}
     var days = snapshot.days || {}
@@ -213,7 +234,9 @@ Panel {
     }
     dataRev++
     var nextNote = root.weekReport ? (root.weekReport.markdown || "") : ""
+    var nextResume = root.weekReport ? (root.weekReport.resume || "") : ""
     if (nextNote !== previousNote) weekCopied = false
+    if (nextResume !== previousResume) resumeCopied = false
   }
 
   function scanBin() {
@@ -417,6 +440,12 @@ Panel {
     onTriggered: root.weekCopied = false
   }
 
+  Timer {
+    id: resumeCopiedTimer
+    interval: 1600
+    onTriggered: root.resumeCopied = false
+  }
+
   Process {
     id: timerProc
     onExited: function(code) {
@@ -614,6 +643,48 @@ Panel {
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
             wrapMode: Text.WordWrap
+          }
+
+          Rectangle {
+            id: resumeCopyBox
+            visible: (root.panelView === "week" || root.panelView === "projects") && !root.settingsOpen
+            width: parent.width - parent.leftPadding - parent.rightPadding
+            height: visible ? implicitHeight : 0
+            radius: 4
+            color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.08)
+            implicitHeight: resumeCopyRow.y + resumeCopyRow.implicitHeight + Style.space(8)
+
+            Row {
+              id: resumeCopyRow
+              x: Style.space(10)
+              y: Style.space(8)
+              width: parent.width - x - Style.space(10)
+              spacing: Style.space(12)
+
+              Text {
+                width: parent.width - resumeCopy.implicitWidth - parent.spacing
+                text: "Short handoff for an agent."
+                color: root.dim
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+              }
+
+              Text {
+                id: resumeCopy
+                text: root.resumeCopied ? "Copied" : "Copy resume for agent"
+                color: root.accent
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+              }
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.copyResume()
+            }
           }
 
           Column {

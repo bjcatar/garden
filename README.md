@@ -34,6 +34,27 @@ omarchy-shell shell rescanPlugins
 
 One themed Nerd Font sprout, same slot as Bluetooth. Hover is the sampled half-hours on this machine today. Left-click scans (if it has been more than 30s) and opens the year. Middle-click scans even if the panel is already open.
 
+## Agent shell
+
+Garden registers the IPC target `bjcatar.garden` with `ShellIpc`, the same type the clock uses. The running shell answers on its own socket.
+
+```bash
+omarchy-shell shell toggle bjcatar.garden
+omarchy-shell bjcatar.garden toggle
+omarchy-shell bjcatar.garden open
+omarchy-shell bjcatar.garden close
+omarchy-shell bjcatar.garden call
+omarchy-shell bjcatar.garden resume
+```
+
+`omarchy shell` runs `omarchy-shell`, so `omarchy shell shell toggle bjcatar.garden` is the same toggle. The second `shell` is the IPC target. `omarchy shell toggle bjcatar.garden` does not reach Garden.
+
+`shell toggle` opens the panel on the focused screen, and closes it when that panel is already open. That path uses the bar widget's `open`, `close`, and `opened` properties. `bjcatar.garden toggle` calls the same functions on the widget instance that registered the target.
+
+`call` prints the week note from the last scan, the same Markdown as **Copy Markdown**. `resume` prints the same handoff as `garden-scan --resume-md` and as **Copy resume for agent**. Before a scan has written `heatmap.json`, both commands print nothing and exit 0.
+
+On **This week** and **Projects**, **Copy resume for agent** copies that handoff through the Omarchy clipboard. It is a separate control from **Copy Markdown** and from the `c` key. The notification title is Garden. The body says to paste the resume into an agent. Escape still closes the panel, including while the Settings folder field is focused.
+
 ## Folders
 
 Default watch: `~/Projects`. Open **Settings** on the panel to add or remove a folder, mute a project, and read the Garden version. The field accepts `~/Projects` and `$HOME/Projects`. Your home directory itself is rejected. Settings lists the folders in your home when nothing valid is watched, and when the path you typed is your home. `~/Documents` is not watched by default (vault backup crons).
