@@ -70,6 +70,8 @@ Default watch: `~/Projects`. Open **Settings** on the panel to add or remove a f
 
 **Sampled half-hours.** The headline counts half-hours with a file change on this PC. Git-only history lights pale tiles and adds nothing to the headline. Settings shows the last successful file walk, and whether the timer unit is enabled.
 
+This week names the latest file in a run by its path. Projects name that path on the latest file save. A path is not an agent.
+
 Agent token totals are **not** squares and are not shown in the panel.
 
 ## Data (all on this PC)

@@ -38,9 +38,9 @@ Sun 2026-10-25.
 
 ## Windows
 
-Sat 14:00-14:30 · garden
-Sat 14:30-15:00 · garden, other
-Sat 15:00-15:30 · other
+Sat 14:00-14:30 · garden · a.py
+Sat 14:30-15:00 · garden, other · other/a.py
+Sat 15:00-15:30 · other · a.py
 
 ## Projects
 
@@ -235,9 +235,9 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertEqual(
             [item["line"] for item in week["spans"]],
             [
-                "Sat 14:00-14:30 · garden",
-                "Sat 14:30-15:00 · garden, other",
-                "Sat 15:00-15:30 · other",
+                "Sat 14:00-14:30 · garden · a.py",
+                "Sat 14:30-15:00 · garden, other · other/a.py",
+                "Sat 15:00-15:30 · other · a.py",
             ],
         )
         self.assertEqual(week["projects"][0]["touched"], "Last touched 2026-10-24 15:00 · a.py · 1 day active")
@@ -438,7 +438,7 @@ class ActivitySummaryTests(unittest.TestCase):
         week = g.summarize_activity(events, TODAY, {"2026-10-19": "unknown", "2026-10-20": "observed"})["week"]
         self.assertEqual(week["machineSlots"], 1)
         self.assertEqual(week["spans"][0]["projects"], ["garden"])
-        self.assertEqual(week["projects"][0]["lastTouched"]["path"], "Heatmap.js")
+        self.assertEqual(week["projects"][0]["lastTouched"]["path"], "src/Heatmap.js")
         self.assertEqual(week["days"][0]["coverage"], "unknown")
         self.assertEqual(week["days"][0]["observedSlots"], 0)
 
@@ -519,6 +519,114 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertTrue(first.startswith("# This week\n"))
         self.assertTrue(first.endswith("## Note\n\n"))
+
+    def test_a_single_project_file_names_its_path(self):
+        out = g.summarize_activity(
+            [file("2026-10-24", 28, "garden", "src/Panel.qml")],
+            TODAY,
+        )
+        span = out["week"]["spans"][0]
+        self.assertEqual(out["week"]["machineHours"], 0.5)
+        self.assertEqual(out["week"]["projects"][0]["lastTouched"]["path"], "src/Panel.qml")
+        self.assertEqual(out["projects"][0]["lastTouched"]["path"], "src/Panel.qml")
+        self.assertEqual(span["fileLabel"], "src/Panel.qml")
+        self.assertIn("src/Panel.qml", span["line"])
+
+    def test_a_dot_cursor_path_stays_a_file(self):
+        path = ".cursor/plans/note.md"
+        plain = g.summarize_activity([file("2026-10-24", 8, "garden", "note.md")], TODAY)
+        out = g.summarize_activity([file("2026-10-24", 8, "garden", path)], TODAY)
+        span = out["week"]["spans"][0]
+        self.assertEqual(span["fileLabel"], path)
+        self.assertEqual(span["sources"], ["file"])
+        self.assertNotIn("agent", span)
+        self.assertEqual(out["week"]["machineHours"], plain["week"]["machineHours"])
+        self.assertEqual(out["week"]["machineHours"], 0.5)
+
+    def test_the_later_repo_names_the_shared_slot_file(self):
+        events = [
+            file("2026-10-24", 28, "garden", "src/Panel.qml"),
+            file("2026-10-24", 28, "other", "lib/a.py"),
+            {"type": "agent", "day": "2026-10-24", "slot": 28, "agent": "cursor"},
+        ]
+        out = g.summarize_activity(events, TODAY)
+        self.assertEqual(out["week"]["machineSlots"], 1)
+        self.assertEqual(out["week"]["spans"][0]["fileLabel"], "other/lib/a.py")
+        self.assertNotIn("cursor", json.dumps(out))
+        for project in out["projects"] + out["week"]["projects"]:
+            self.assertNotIn("agent", project)
+
+    def test_the_later_file_in_a_slot_wins_the_path(self):
+        events = [
+            file("2026-10-24", 28, "garden", "src/old.py"),
+            file("2026-10-24", 28, "garden", "src/new.py"),
+        ]
+        out = g.summarize_activity(events, TODAY)
+        self.assertEqual(out["week"]["projects"][0]["lastTouched"]["path"], "src/new.py")
+        self.assertEqual(out["projects"][0]["lastTouched"]["path"], "src/new.py")
+        self.assertEqual(out["week"]["spans"][0]["fileLabel"], "src/new.py")
+
+    def test_the_later_slot_in_a_run_names_the_file(self):
+        events = [
+            file("2026-10-24", 28, "garden", "src/old.py"),
+            file("2026-10-24", 29, "garden", "src/new.py"),
+        ]
+        out = g.summarize_activity(events, TODAY)
+        span = out["week"]["spans"][0]
+        self.assertEqual(len(out["week"]["spans"]), 1)
+        self.assertEqual(span["fileLabel"], "src/new.py")
+        self.assertEqual(span["line"], "Sat 14:00-15:00 · garden · src/new.py")
+        self.assertEqual(out["week"]["machineHours"], 1.0)
+        self.assertNotIn("fileLabel", out["projects"][0]["windows"][0])
+
+    def test_a_later_commit_blanks_the_touch_path(self):
+        events = [
+            file("2026-10-24", 28, "garden", "src/Panel.qml"),
+            commit("2026-10-24", 29, "garden", "abc", "save"),
+        ]
+        out = g.summarize_activity(events, TODAY)
+        spans = out["week"]["spans"]
+        self.assertEqual(out["week"]["projects"][0]["lastTouched"]["path"], "")
+        self.assertEqual(out["projects"][0]["lastTouched"]["path"], "")
+        self.assertEqual(spans[0]["fileLabel"], "src/Panel.qml")
+        self.assertEqual(spans[1]["fileLabel"], "")
+        self.assertTrue(spans[1]["line"].endswith("commit only"))
+
+    def test_a_backslash_path_is_stored_with_slashes(self):
+        out = g.summarize_activity(
+            [file("2026-10-24", 28, "garden", "src\\a.py")],
+            TODAY,
+        )
+        self.assertEqual(out["week"]["projects"][0]["lastTouched"]["path"], "src/a.py")
+        self.assertEqual(out["projects"][0]["lastTouched"]["path"], "src/a.py")
+        self.assertEqual(out["week"]["spans"][0]["fileLabel"], "src/a.py")
+
+    def test_a_blank_path_keeps_the_earlier_file_in_the_run(self):
+        events = [
+            file("2026-10-24", 28, "garden", "src/a.py"),
+            file("2026-10-24", 29, "garden", "   "),
+        ]
+        out = g.summarize_activity(events, TODAY)
+        span = out["week"]["spans"][0]
+        self.assertEqual(len(out["week"]["spans"]), 1)
+        self.assertEqual(span["startSlot"], 28)
+        self.assertEqual(span["endSlot"], 29)
+        self.assertEqual(span["fileLabel"], "src/a.py")
+
+    def test_an_agent_span_has_no_file(self):
+        events = [{"type": "agent", "day": "2026-10-22", "slot": 8, "agent": "cursor"}]
+        span = g.summarize_activity(events, TODAY)["week"]["spans"][0]
+        self.assertEqual(span["fileLabel"], "")
+        self.assertEqual(span["projects"], [])
+
+    def test_week_days_carry_no_file_path(self):
+        days = g.summarize_activity(
+            [file("2026-10-24", 28, "garden", "src/Panel.qml")],
+            TODAY,
+        )["week"]["days"]
+        for day in days:
+            self.assertNotIn("path", day)
+            self.assertNotIn("fileLabel", day)
 
 
 def load_scan():

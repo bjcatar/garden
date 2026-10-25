@@ -517,10 +517,8 @@ def _parse_event(raw: Any) -> Optional[tuple]:
     repo_name = repo.strip() if isinstance(repo, str) else ""
     digest = raw.get("hash")
     subject = raw.get("subject")
-    path = raw.get("path")
-    path_name = ""
-    if isinstance(path, str) and path.strip():
-        path_name = path.strip().replace("\\", "/").rsplit("/", 1)[-1]
+    raw_path = raw.get("path")
+    path = raw_path.strip().replace("\\", "/") if isinstance(raw_path, str) else ""
     return (
         when,
         slot,
@@ -528,7 +526,7 @@ def _parse_event(raw: Any) -> Optional[tuple]:
         repo_name,
         digest.strip() if isinstance(digest, str) else "",
         subject.strip() if isinstance(subject, str) else "",
-        path_name,
+        path,
     )
 
 
@@ -594,41 +592,72 @@ def _same_run(left: Dict[str, Set[str]], right: Dict[str, Set[str]]) -> bool:
     return left["projects"] == right["projects"] and left["sources"] == right["sources"]
 
 
+def _keep_file(kept: Optional[tuple], slot: int, cell: Mapping[str, Any]) -> Optional[tuple]:
+    remembered = cell["file"]
+    if remembered is None:
+        return kept
+    order, path, repo = remembered
+    if kept is not None and (kept[0], kept[1]) >= (slot, order):
+        return kept
+    return (slot, order, path, repo)
+
+
 def _week_spans(rows: Sequence[tuple], week_start: date, today: date) -> List[Dict[str, Any]]:
-    by_day: Dict[date, Dict[int, Dict[str, Set[str]]]] = {}
-    for when, slot, kind, repo, _digest, _subject, _path in rows:
+    by_day: Dict[date, Dict[int, Dict[str, Any]]] = {}
+    for order, (when, slot, kind, repo, _digest, _subject, path) in enumerate(rows):
         if when < week_start or when > today:
             continue
-        cell = by_day.setdefault(when, {}).setdefault(slot, {"projects": set(), "sources": set()})
+        cell = by_day.setdefault(when, {}).setdefault(
+            slot, {"projects": set(), "sources": set(), "file": None}
+        )
         cell["sources"].add(kind)
         if repo:
             cell["projects"].add(repo)
+        if kind == "file" and path:
+            remembered = cell["file"]
+            if remembered is None or order > remembered[0]:
+                cell["file"] = (order, path, repo)
     spans: List[Dict[str, Any]] = []
     for when in sorted(by_day):
         ordered = sorted(by_day[when])
         start = prev = ordered[0]
         current = by_day[when][start]
+        winner = _keep_file(None, start, current)
         for slot in ordered[1:]:
             cell = by_day[when][slot]
             if slot == prev + 1 and _same_run(current, cell):
                 prev = slot
+                winner = _keep_file(winner, slot, cell)
                 continue
-            spans.append(_span_payload(when, start, prev, current))
+            spans.append(_span_payload(when, start, prev, current, winner))
             start = prev = slot
             current = cell
-        spans.append(_span_payload(when, start, prev, current))
+            winner = _keep_file(None, slot, cell)
+        spans.append(_span_payload(when, start, prev, current, winner))
     return spans
 
 
-def _span_payload(when: date, start_slot: int, end_slot: int, cell: Dict[str, Set[str]]) -> Dict[str, Any]:
+def _span_payload(
+    when: date,
+    start_slot: int,
+    end_slot: int,
+    cell: Mapping[str, Any],
+    winner: Optional[tuple],
+) -> Dict[str, Any]:
+    projects = sorted(cell["projects"])
+    file_label = ""
+    if winner is not None:
+        _slot, _order, path, repo = winner
+        file_label = f"{repo}/{path}" if len(projects) > 1 and repo else path
     return {
         "day": when.isoformat(),
         "weekday": _WEEKDAY_SHORT[when.weekday()],
         "startSlot": start_slot,
         "endSlot": end_slot,
         "label": f"{_clock(start_slot)}-{_clock_end(end_slot)}",
-        "projects": sorted(cell["projects"]),
+        "projects": projects,
         "sources": [kind for kind in _KINDS if kind in cell["sources"]],
+        "fileLabel": file_label,
     }
 
 
@@ -710,6 +739,9 @@ def _window_line(item: Mapping[str, Any]) -> str:
     names = list(item.get("projects") or [])
     if names:
         line += _DOT + ", ".join(names)
+    file_label = item.get("fileLabel") or ""
+    if file_label:
+        line += _DOT + file_label
     if len(sources) == 1 and sources[0] == "git":
         line += _DOT + "commit only"
     elif not names and "agent" in sources:
