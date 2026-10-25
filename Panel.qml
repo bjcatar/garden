@@ -53,10 +53,12 @@ Panel {
 
   property bool pinToday: false
   property string panelView: "year"
+  property bool weekCopied: false
   property string selectedProject: ""
   property bool yearPlaced: false
 
   onPanelViewChanged: {
+    weekCopied = false
     if (panelView !== "year" || yearPlaced) return
     yearPlaced = true
     if (yearFlick) {
@@ -86,15 +88,29 @@ Panel {
     selectedProject = ""
   }
 
+  function weekCopyHint() {
+    var week = root.weekReport
+    if (week && typeof week.copyHint === "string" && week.copyHint.length)
+      return week.copyHint
+    return "Copies a Markdown week note after a scan."
+  }
+
+  function gardenNotify(body) {
+    Quickshell.execDetached(["omarchy-notification-send", "Garden", body, "-g", "󰹢"])
+  }
+
   function copyWeek() {
     var markdown = root.weekReport ? root.weekReport.markdown : ""
     if (typeof markdown !== "string" || markdown.indexOf("# This week\n") !== 0) {
-      Quickshell.execDetached(["omarchy-notification-send", "This week fills in after a scan."])
+      weekCopied = false
+      root.gardenNotify("This week fills in after a scan.")
       return
     }
     var omarchyPath = Quickshell.env("OMARCHY_PATH") || "/usr/share/omarchy"
     Quickshell.execDetached([omarchyPath + "/bin/omarchy-clipboard-paste-text", "--copy-only", markdown])
-    Quickshell.execDetached(["omarchy-notification-send", "Copied this week"])
+    root.gardenNotify("Week note copied. Paste it into Obsidian.")
+    weekCopied = true
+    weekCopiedTimer.restart()
   }
 
   function weekDayColor(day) {
@@ -112,6 +128,7 @@ Panel {
 
   onOpenedChanged: {
     if (opened) {
+      weekCopied = false
       yearPlaced = true
       settingsOpen = false
       panelView = "year"
@@ -124,6 +141,7 @@ Panel {
         if (yearFlick) yearFlick.scrollToToday()
       })
     } else {
+      weekCopied = false
       settingsOpen = false
       if (rootField) rootField.focus = false
     }
@@ -180,6 +198,7 @@ Panel {
   }
 
   function applySnapshot(parsed) {
+    var previousNote = root.weekReport ? (root.weekReport.markdown || "") : ""
     snapshot = parsed && typeof parsed === "object" ? parsed : {}
     var range = snapshot.range || {}
     var days = snapshot.days || {}
@@ -193,6 +212,8 @@ Panel {
       pinToday = false
     }
     dataRev++
+    var nextNote = root.weekReport ? (root.weekReport.markdown || "") : ""
+    if (nextNote !== previousNote) weekCopied = false
   }
 
   function scanBin() {
@@ -388,6 +409,12 @@ Panel {
       var captured = String(root.settingsStdout || "")
       Qt.callLater(function() { root.finishSettingsCommand(status, captured) })
     }
+  }
+
+  Timer {
+    id: weekCopiedTimer
+    interval: 1600
+    onTriggered: root.weekCopied = false
   }
 
   Process {
@@ -596,35 +623,61 @@ Panel {
             width: parent.width - parent.leftPadding - parent.rightPadding
             spacing: Style.space(8)
 
-            Row {
+            Text {
               width: parent.width
-              spacing: Style.space(12)
+              text: {
+                var _ = root.dataRev
+                return root.weekReport ? (root.weekReport.headline || "") : "This week fills in after a scan."
+              }
+              color: root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.bold: true
+              wrapMode: Text.WordWrap
+            }
 
-              Text {
-                width: parent.width - weekCopy.implicitWidth - parent.spacing
-                text: {
-                  var _ = root.dataRev
-                  return root.weekReport ? (root.weekReport.headline || "") : "This week fills in after a scan."
+            Rectangle {
+              id: weekCopyBox
+              width: parent.width
+              radius: 4
+              color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.08)
+              implicitHeight: copyRow.y + copyRow.implicitHeight + Style.space(8)
+              height: implicitHeight
+
+              Row {
+                id: copyRow
+                x: Style.space(10)
+                y: Style.space(8)
+                width: parent.width - x - Style.space(10)
+                spacing: Style.space(12)
+
+                Text {
+                  id: weekCopyHint
+                  width: parent.width - weekCopy.implicitWidth - parent.spacing
+                  text: {
+                    var _ = root.dataRev
+                    return root.weekCopyHint()
+                  }
+                  color: root.dim
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
                 }
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.bold: true
-                wrapMode: Text.WordWrap
+
+                Text {
+                  id: weekCopy
+                  text: root.weekCopied ? "Copied" : "Copy Markdown"
+                  color: root.accent
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                }
               }
 
-              Text {
-                id: weekCopy
-                text: "Copy"
-                color: root.accent
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.bold: true
-                MouseArea {
-                  anchors.fill: parent
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.copyWeek()
-                }
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.copyWeek()
               }
             }
 

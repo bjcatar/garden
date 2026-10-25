@@ -209,6 +209,12 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertNotIn("2h", note)
         self.assertNotIn("2.0h", note)
         self.assertIn(week["headline"], note)
+        self.assertEqual(
+            week["copyHint"],
+            "Markdown for Obsidian. 2026-10-19 to 2026-10-25. Days, 2 projects, and a blank Note.",
+        )
+        self.assertNotIn(week["headline"], week["copyHint"])
+        self.assertNotIn("1.5", week["copyHint"])
         for item in week["spans"]:
             self.assertIn(item["line"], note)
         for project in week["projects"]:
@@ -250,6 +256,10 @@ class ActivitySummaryTests(unittest.TestCase):
         note = week["markdown"]
         self.assertEqual(note, GIT_ONLY_NOTE)
         self.assertEqual(note.count("import · old · 05:00"), 1)
+        self.assertEqual(
+            week["copyHint"],
+            "Markdown for Obsidian. 2026-10-19 to 2026-10-25. Days, 1 project, 1 recent commit, and a blank Note.",
+        )
 
     def test_file_and_git_in_one_slot_are_one_observed_window(self):
         events = [
@@ -274,6 +284,11 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertEqual(note, AGENT_NOTE)
         self.assertNotIn("## Projects", note)
         self.assertNotIn("## Recent commits", note)
+        self.assertEqual(
+            out["week"]["copyHint"],
+            "Markdown for Obsidian. 2026-10-19 to 2026-10-25. Days and a blank Note.",
+        )
+        self.assertNotIn("0.5", out["week"]["copyHint"])
 
     def test_week_is_monday_through_sunday_and_tomorrow_is_future(self):
         events = [
@@ -328,6 +343,8 @@ class ActivitySummaryTests(unittest.TestCase):
         block = note[note.index(marker) + len(marker):]
         block = block[:block.index("\n\n")]
         self.assertEqual(len(block.split("\n")), 8)
+        self.assertIn("8 recent commits", week["copyHint"])
+        self.assertNotIn("10 recent", week["copyHint"])
 
     def test_year_project_keeps_the_latest_windows_only(self):
         events = [file("2026-10-24", slot, "garden") for slot in range(0, 20, 2)]
@@ -390,6 +407,10 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertEqual(len(out["week"]["days"]), 7)
         self.assertEqual([day["caption"] for day in out["week"]["days"]], ["", "", "", "", "", "", ""])
         self.assertEqual(out["week"]["markdown"], EMPTY_NOTE)
+        self.assertEqual(
+            out["week"]["copyHint"],
+            "Markdown for Obsidian. 2026-10-19 to 2026-10-25. Days and a blank Note.",
+        )
 
     def test_square_captions_skip_coverage_that_is_not_observed_time(self):
         events = [
@@ -471,6 +492,11 @@ class HeatmapActivityTests(unittest.TestCase):
         self.assertTrue(note.startswith("# This week\n"))
         self.assertTrue(note.endswith("## Note\n\n"))
         self.assertIn(snap["activity"]["week"]["headline"], note)
+        hint = snap["activity"]["week"]["copyHint"]
+        self.assertIn("1 project", hint)
+        self.assertNotIn("recent commit", hint)
+        self.assertNotIn(snap["activity"]["week"]["headline"], hint)
+        self.assertNotIn("0.5", hint)
 
 
 if __name__ == "__main__":
