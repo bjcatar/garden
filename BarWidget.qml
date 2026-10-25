@@ -1,10 +1,13 @@
 // Garden bar widget.
 // - Property names cannot begin with an uppercase letter.
+// - IpcHandler needs import Quickshell.Io.
 // - Do not set BarIconButton.active (that is the urgent/orange color).
 // - Panel must use manageIpc: false (IPC lives here).
 // - Keep open, close, and opened on this root. shell toggle finds the panel through them.
 
 import QtQuick
+import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -77,7 +80,7 @@ BarWidget {
     }
   }
 
-  ShellIpc {
+  IpcHandler {
     target: "bjcatar.garden"
     function refresh(): void { root.refresh() }
     function open(): void { root.open() }
