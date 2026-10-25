@@ -52,8 +52,7 @@ def load_settings() -> Dict[str, Any]:
 
 
 def save_settings(settings: Dict[str, Any]) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    SETTINGS_PATH.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    atomic_replace(SETTINGS_PATH, json.dumps(settings, indent=2) + "\n")
 
 
 def load_state() -> Dict[str, Any]:
@@ -102,11 +101,7 @@ def _git_config(repo: Optional[Path], key: str) -> str:
 
 
 def repo_label(repo: Path) -> str:
-    home = str(Path.home())
-    rel = str(repo)
-    if rel.startswith(home + os.sep):
-        return "~" + rel[len(home):]
-    return rel
+    return g.display_path(repo, Path.home())
 
 
 def discover_repos(roots: List[str]) -> List[Path]:
@@ -115,7 +110,7 @@ def discover_repos(roots: List[str]) -> List[Path]:
     for raw in roots:
         if not g.validate_root(raw):
             continue
-        root = Path(raw).expanduser().resolve()
+        root = g.expand_root(raw, Path.home()).resolve()
         for dirpath, dirnames, _files in os.walk(root, followlinks=False):
             rel = Path(dirpath)
             try:
@@ -139,12 +134,7 @@ def discover_repos(roots: List[str]) -> List[Path]:
 
 
 def muted(repo: Path, exclude: List[str]) -> bool:
-    label = repo_label(repo)
-    path = str(repo)
-    for item in exclude:
-        if item in (label, path, repo.name):
-            return True
-    return False
+    return g.repo_muted(repo_label(repo), str(repo), repo.name, exclude)
 
 
 def _git_log_args(since: str) -> List[str]:
@@ -396,7 +386,7 @@ def _file_probe(settings: Dict[str, Any], repos: List[Path], since_ts: float) ->
         if not g.validate_root(raw):
             continue
         try:
-            root = Path(raw).expanduser().resolve()
+            root = g.expand_root(raw, Path.home()).resolve()
         except OSError:
             parts.append(g.ProbeFailed(events=()))
             continue
@@ -513,42 +503,93 @@ def with_lock(fn):
         return fn()
 
 
-def cmd_add_root(raw: str) -> int:
+def _heatmap_repos() -> List[Dict[str, Any]]:
+    data = _read_json(HEATMAP_PATH, None)
+    if not isinstance(data, dict):
+        return []
+    repos = data.get("repos")
+    if not isinstance(repos, list):
+        return []
+    return [repo for repo in repos if isinstance(repo, dict)]
+
+
+def _read_manifest() -> Optional[Dict[str, Any]]:
+    data = _read_json(PLUGIN_ROOT / "manifest.json", None)
+    return data if isinstance(data, dict) else None
+
+
+def _print_sheet(result: str, token: str, sheet: Dict[str, Any]) -> None:
+    payload = {
+        "result": result,
+        "token": token,
+        "version": sheet["version"],
+        "roots": sheet["roots"],
+        "offers": sheet["offers"],
+        "mutes": sheet["mutes"],
+        "openRepos": sheet["openRepos"],
+        "subject": sheet["subject"],
+        "hardSkipNote": sheet["hardSkipNote"],
+    }
+    sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\n")
+    sys.stdout.flush()
+
+
+def _sheet(settings: Dict[str, Any], *, force_offers: bool) -> Dict[str, Any]:
+    return g.settings_sheet(
+        settings,
+        _heatmap_repos(),
+        _read_manifest(),
+        home=Path.home(),
+        force_offers=force_offers,
+    )
+
+
+def cmd_settings_sheet(force_offers: bool = False) -> int:
     settings = load_settings()
-    if not g.validate_root(raw):
-        print("invalid-root", raw)
-        return 1
-    path = str(Path(raw).expanduser().resolve())
-    roots = settings.get("roots") or []
-    if path not in roots and raw not in roots:
-        roots.append(path)
-    settings["roots"] = roots
-    save_settings(settings)
-    print("ok")
+    _print_sheet("ok", "", _sheet(settings, force_offers=force_offers))
     return 0
+
+
+def cmd_add_root(raw: str) -> int:
+    def run() -> int:
+        settings = load_settings()
+        decision = g.root_decision(raw, home=Path.home())
+        if decision.ok:
+            updated = g.apply_add_root(settings, raw, home=Path.home())
+            save_settings(updated)
+            _print_sheet("ok", decision.token, _sheet(updated, force_offers=False))
+            return 0
+        force = decision.kind == "home"
+        _print_sheet(
+            "home" if force else "reject",
+            decision.token,
+            _sheet(settings, force_offers=force),
+        )
+        return 2 if force else 1
+
+    return with_lock(run)
 
 
 def cmd_remove_root(raw: str) -> int:
-    settings = load_settings()
-    target = str(Path(raw).expanduser())
-    resolved = str(Path(raw).expanduser().resolve()) if Path(raw).expanduser().exists() else target
-    settings["roots"] = [r for r in (settings.get("roots") or []) if r not in (raw, target, resolved)]
-    save_settings(settings)
-    print("ok")
-    return 0
+    def run() -> int:
+        settings = load_settings()
+        updated = g.apply_remove_root(settings, raw, home=Path.home())
+        save_settings(updated)
+        _print_sheet("ok", "", _sheet(updated, force_offers=False))
+        return 0
+
+    return with_lock(run)
 
 
 def cmd_mute(raw: str, mute: bool) -> int:
-    settings = load_settings()
-    exclude = list(settings.get("excludeRepos") or [])
-    if mute and raw not in exclude:
-        exclude.append(raw)
-    if not mute:
-        exclude = [x for x in exclude if x != raw]
-    settings["excludeRepos"] = exclude
-    save_settings(settings)
-    print("ok")
-    return 0
+    def run() -> int:
+        settings = load_settings()
+        updated = g.apply_mute(settings, raw, mute)
+        save_settings(updated)
+        _print_sheet("ok", "", _sheet(updated, force_offers=False))
+        return 0
+
+    return with_lock(run)
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -632,6 +673,8 @@ def main(argv: List[str]) -> int:
     if "--timer-status" in argv:
         print("enabled" if timer_enabled() else "disabled")
         return 0
+    if "--settings-sheet" in argv:
+        return cmd_settings_sheet("--offers" in argv)
     if "--add-root" in argv:
         i = argv.index("--add-root")
         return cmd_add_root(argv[i + 1] if i + 1 < len(argv) else "")

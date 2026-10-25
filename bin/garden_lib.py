@@ -80,25 +80,288 @@ def git_signal_enabled(settings: Dict[str, Any]) -> bool:
     return bool(settings.get("authorEmails"))
 
 
-def _expand(raw: str) -> Path:
-    return Path(str(raw)).expanduser()
+HARD_SKIP_NOTE = "Build and dependency folders are skipped by the scanner. They are not mutes."
+
+
+@dataclass(frozen=True)
+class RootDecision:
+    """Accept stores an absolute path. Home and reject leave stored and display empty."""
+
+    kind: Literal["accept", "home", "reject"]
+    stored: str
+    display: str
+    token: str
+    offers: tuple[tuple[str, str], ...]
+
+    @property
+    def ok(self) -> bool:
+        return self.kind == "accept"
+
+
+def _with_home_prefix(text: str, prefix: str, home: Path) -> Optional[Path]:
+    if text == prefix:
+        return home
+    for sep in ("/", os.sep):
+        marker = prefix + sep
+        if text.startswith(marker):
+            rest = text[len(marker):].lstrip("/\\")
+            return home / rest if rest else home
+    return None
+
+
+def expand_root(raw: str, home: Path) -> Path:
+    """Map a leading $HOME, ${HOME}, or ~ onto home. Leave other variables alone."""
+    text = "" if raw is None else str(raw).strip()
+    base = Path(home)
+    for prefix in ("${HOME}", "$HOME"):
+        mapped = _with_home_prefix(text, prefix, base)
+        if mapped is not None:
+            return mapped
+    if text == "~":
+        return base
+    if text.startswith("~/") or (os.sep != "/" and text.startswith("~" + os.sep)):
+        rest = text[2:] if text.startswith("~/") else text[1 + len(os.sep):]
+        rest = rest.lstrip("/\\")
+        return base / rest if rest else base
+    if text.startswith("~"):
+        return Path(text).expanduser()
+    path = Path(text)
+    if path.is_absolute():
+        return path
+    return base / text
+
+
+def display_path(path: str | Path, home: Path) -> str:
+    home_s = str(home)
+    rel = str(path)
+    if rel.startswith(home_s + os.sep):
+        return "~" + rel[len(home_s):]
+    return rel
+
+
+def _classify(raw: str, home: Path) -> RootDecision:
+    text = "" if raw is None else str(raw).strip()
+    if not text:
+        return RootDecision("reject", "", "", "empty", ())
+    try:
+        expanded = expand_root(text, home).resolve()
+        resolved_home = Path(home).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return RootDecision("reject", "", "", "missing", ())
+    if expanded == resolved_home:
+        return RootDecision("home", "", "", "home", ())
+    if not expanded.exists():
+        return RootDecision("reject", "", "", "missing", ())
+    if not expanded.is_dir():
+        return RootDecision("reject", "", "", "not-directory", ())
+    try:
+        expanded.relative_to(resolved_home)
+    except ValueError:
+        return RootDecision("reject", "", "", "outside-home", ())
+    stored = str(expanded)
+    return RootDecision("accept", stored, display_path(stored, resolved_home), "", ())
+
+
+def _pin_name() -> str:
+    roots = DEFAULT_SETTINGS.get("roots") or []
+    if not roots:
+        return ""
+    return Path(str(roots[0])).name
+
+
+def _direct_offers(home: Path) -> tuple[tuple[str, str], ...]:
+    pin = _pin_name()
+    found: List[tuple[str, str, str]] = []
+    try:
+        children = list(Path(home).iterdir())
+    except OSError:
+        return ()
+    for child in children:
+        name = child.name
+        if not name or name.startswith("."):
+            continue
+        try:
+            decision = _classify(str(child), home)
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if not decision.ok:
+            continue
+        found.append((name, decision.stored, decision.display))
+    found.sort(key=lambda row: (row[0] != pin, row[0].casefold()))
+    return tuple((stored, display) for name, stored, display in found)
+
+
+def root_decision(raw: str, *, home: Optional[Path] = None) -> RootDecision:
+    base = Path.home() if home is None else Path(home)
+    decision = _classify(raw, base)
+    if decision.kind != "home":
+        return decision
+    try:
+        resolved_home = base.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return RootDecision("home", "", "", "home", ())
+    return RootDecision("home", "", "", "home", _direct_offers(resolved_home))
 
 
 def validate_root(raw: str) -> bool:
+    return root_decision(raw).ok
+
+
+def repo_muted(label: str, path: str, name: str, exclude: Sequence[str]) -> bool:
+    for item in exclude:
+        if item in (label, path, name):
+            return True
+    return False
+
+
+def manifest_version(manifest: Optional[Mapping[str, Any]]) -> str:
+    if not isinstance(manifest, Mapping):
+        return ""
+    version = manifest.get("version")
+    if isinstance(version, str) and re.fullmatch(r"\d+\.\d+\.\d+", version):
+        return version
+    return ""
+
+
+def _copy_settings(settings: Mapping[str, Any]) -> Dict[str, Any]:
+    data = dict(settings)
+    roots = data.get("roots")
+    data["roots"] = list(roots) if isinstance(roots, list) else []
+    exclude = data.get("excludeRepos")
+    if isinstance(exclude, list):
+        data["excludeRepos"] = list(exclude)
+    sources = data.get("sources")
+    if isinstance(sources, dict):
+        data["sources"] = dict(sources)
+    return data
+
+
+def _same_directory(left: str, right: str, home: Path) -> bool:
     try:
-        path = _expand(raw).resolve()
-    except Exception:
+        a = expand_root(left, home).resolve()
+        b = expand_root(right, home).resolve()
+        return a == b and a.is_dir()
+    except (OSError, RuntimeError, ValueError):
         return False
-    home = Path.home().resolve()
-    if path == home:
-        return False
-    if not path.is_dir():
-        return False
+
+
+def apply_add_root(settings: Mapping[str, Any], raw: str, *, home: Path) -> Dict[str, Any]:
+    data = _copy_settings(settings)
+    roots = data["roots"]
+    text = "" if raw is None else str(raw)
+    decision = root_decision(text, home=home)
+    if not decision.ok:
+        return data
+    stripped = text.strip()
+    if text in roots or stripped in roots:
+        return data
+    for existing in roots:
+        existing_text = str(existing)
+        if existing_text == decision.stored or _same_directory(existing_text, text, home):
+            return data
+    roots.append(decision.stored)
+    data["roots"] = roots
+    return data
+
+
+def apply_remove_root(settings: Mapping[str, Any], raw: str, *, home: Path) -> Dict[str, Any]:
+    data = _copy_settings(settings)
+    text = "" if raw is None else str(raw)
     try:
-        path.relative_to(home)
-    except ValueError:
-        return False
-    return True
+        expanded = str(expand_root(text, home))
+    except (OSError, RuntimeError, ValueError):
+        expanded = ""
+    kept: List[Any] = []
+    for existing in data["roots"]:
+        existing_text = str(existing)
+        if existing_text == text or (expanded and existing_text == expanded):
+            continue
+        if text and _same_directory(existing_text, text, home):
+            continue
+        kept.append(existing)
+    data["roots"] = kept
+    return data
+
+
+def apply_mute(settings: Mapping[str, Any], raw: str, mute: bool) -> Dict[str, Any]:
+    data = _copy_settings(settings)
+    exclude = data.get("excludeRepos")
+    items = [str(item) for item in exclude] if isinstance(exclude, list) else []
+    text = "" if raw is None else str(raw)
+    if mute:
+        if text.strip() and text not in items:
+            items.append(text)
+    else:
+        items = [item for item in items if item != text]
+    data["excludeRepos"] = items
+    return data
+
+
+def _repo_bits(repo: Mapping[str, Any]) -> tuple[str, str, str, str]:
+    path = str(repo.get("path") or "")
+    name = str(repo.get("name") or "")
+    if not name and path:
+        name = Path(path).name
+    label = str(repo.get("label") or "")
+    shown = label if label else path
+    return label, path, name, shown
+
+
+def settings_sheet(
+    settings: Mapping[str, Any],
+    repos: Sequence[Mapping[str, Any]],
+    manifest: Optional[Mapping[str, Any]],
+    *,
+    home: Path,
+    force_offers: bool = False,
+) -> Dict[str, Any]:
+    raw = dict(settings) if isinstance(settings, Mapping) else None
+    normalized = normalize_settings(raw)
+    base = Path(home)
+    roots_out: List[Dict[str, Any]] = []
+    any_ok = False
+    for stored in normalized.get("roots") or []:
+        stored_text = str(stored)
+        decision = root_decision(stored_text, home=base)
+        any_ok = any_ok or decision.ok
+        roots_out.append({
+            "stored": stored_text,
+            "display": decision.display,
+            "ok": decision.ok,
+            "token": decision.token,
+        })
+    if force_offers or not any_ok:
+        try:
+            offers = _direct_offers(base.resolve())
+        except (OSError, RuntimeError, ValueError):
+            offers = ()
+    else:
+        offers = ()
+    exclude = [str(item) for item in (normalized.get("excludeRepos") or [])]
+    repo_rows = [repo for repo in (repos or []) if isinstance(repo, Mapping)]
+    mutes: List[Dict[str, Any]] = []
+    for item in exclude:
+        hits: List[str] = []
+        for repo in repo_rows:
+            label, path, name, shown = _repo_bits(repo)
+            if repo_muted(label, path, name, [item]) and shown:
+                hits.append(shown)
+        mutes.append({"stored": item, "hits": hits})
+    open_repos: List[str] = []
+    for repo in repo_rows:
+        label, path, name, shown = _repo_bits(repo)
+        if shown and not repo_muted(label, path, name, exclude):
+            open_repos.append(shown)
+    pattern = str(normalized.get("ignoreSubject") or DEFAULT_IGNORE_SUBJECT)
+    return {
+        "version": manifest_version(manifest),
+        "roots": roots_out,
+        "offers": [{"stored": stored, "display": display} for stored, display in offers],
+        "mutes": mutes,
+        "openRepos": open_repos,
+        "subject": {"pattern": pattern, "isDefault": pattern == DEFAULT_IGNORE_SUBJECT},
+        "hardSkipNote": HARD_SKIP_NOTE,
+    }
 
 
 def normalize_settings(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
