@@ -27,7 +27,21 @@ Panel {
   }
 
   property var snapshot: ({})
-  property var gardenSettings: ({ roots: [] })
+  property bool settingsOpen: false
+  property bool sheetReady: false
+  property bool mutePicker: false
+  property string settingsAction: ""
+  property string rootToken: ""
+  property string settingsStdout: ""
+  property var sheet: ({
+    version: "",
+    roots: [],
+    offers: [],
+    mutes: [],
+    openRepos: [],
+    subject: ({ pattern: "", isDefault: true }),
+    hardSkipNote: ""
+  })
   property int dataRev: 0
   property var last7: []
   property var weeks: []
@@ -132,6 +146,7 @@ Panel {
   onOpenedChanged: {
     if (opened) {
       yearPlaced = true
+      settingsOpen = false
       panelView = "year"
       selectedProject = ""
       pinToday = true
@@ -141,8 +156,21 @@ Panel {
         if (!root.opened) return
         if (yearFlick) yearFlick.scrollToToday()
       })
-    } else if (rootField) {
-      rootField.focus = false
+    } else {
+      settingsOpen = false
+      if (rootField) rootField.focus = false
+    }
+  }
+
+  onSettingsOpenChanged: {
+    if (settingsOpen) {
+      rootToken = ""
+      mutePicker = false
+      loadSheet()
+    } else {
+      mutePicker = false
+      rootToken = ""
+      if (rootField) rootField.focus = false
     }
   }
 
@@ -226,16 +254,88 @@ Panel {
     if (empty) root.refresh()
   }
 
+  function runSettings(action, args) {
+    if (settingsProc.running) return
+    root.settingsAction = action
+    if (action === "read") root.sheetReady = false
+    var cmd = ["python3", "-u", root.scanBin()]
+    for (var i = 0; i < args.length; i++) cmd.push(args[i])
+    settingsProc.command = cmd
+    settingsProc.running = true
+  }
+
+  function loadSheet() {
+    var args = ["--settings-sheet"]
+    if (root.rootToken === "home") args.push("--offers")
+    root.runSettings("read", args)
+  }
+
   function addRoot() {
     var path = rootField ? rootField.text.trim() : ""
     if (!path) return
-    addProc.command = ["python3", scanBin(), "--add-root", path]
-    addProc.running = true
+    root.runSettings("add", ["--add-root", path])
   }
 
-  function removeRoot(path) {
-    rmProc.command = ["python3", scanBin(), "--remove-root", path]
-    rmProc.running = true
+  function addStored(stored) {
+    if (!stored) return
+    root.runSettings("add", ["--add-root", stored])
+  }
+
+  function removeRoot(stored) {
+    root.runSettings("remove", ["--remove-root", stored])
+  }
+
+  function muteLabel(label) {
+    root.runSettings("mute", ["--mute", label])
+  }
+
+  function unmuteStored(stored) {
+    root.runSettings("unmute", ["--unmute", stored])
+  }
+
+  function rootNote(token) {
+    if (!token || token === "empty") return ""
+    if (token === "home") return "Your home folder is too broad. Pick a folder inside it."
+    if (token === "missing") return "That folder does not exist."
+    if (token === "not-directory") return "That path is not a folder."
+    if (token === "outside-home") return "Pick a folder inside your home."
+    return "That folder was rejected (must be inside your home, not your home directory itself)."
+  }
+
+  function scanStatusLine() {
+    var status = root.snapshot.scanStatus
+    if (status) return status
+    if (root.snapshot.timerEnabled === true)
+      return "No successful scan yet. Timer enabled."
+    return "No successful scan yet. Timer off."
+  }
+
+  function finishSettingsCommand(code, captured) {
+    var text = String(captured !== undefined ? captured : (root.settingsStdout || "")).trim()
+    var parsed = null
+    try {
+      parsed = JSON.parse(text)
+    } catch (e) {
+      parsed = null
+    }
+    if (!parsed || typeof parsed !== "object" || parsed.result === undefined) {
+      if (code === 2) root.rootToken = "home"
+      else if (code === 1) root.rootToken = "reject"
+      return
+    }
+    root.sheet = parsed
+    root.sheetReady = true
+    if (root.settingsAction === "read") return
+    root.rootToken = parsed.token || ""
+    if (parsed.result === "home" || parsed.result === "reject") return
+    if (root.settingsAction === "add" && parsed.result === "ok") {
+      if (rootField) rootField.text = ""
+      root.rootToken = ""
+      if (root.opened && keyCatcher) keyCatcher.forceActiveFocus()
+      root.refresh()
+      return
+    }
+    if (parsed.result === "ok") root.refresh()
   }
 
   function open() {
@@ -298,45 +398,29 @@ Panel {
     }
   }
 
-  FileView {
-    id: settingsFile
-    path: Quickshell.env("HOME") + "/.local/state/omarchy/garden/settings.json"
-    watchChanges: true
-    printErrors: false
-    onFileChanged: reload()
-    onLoaded: {
-      try { root.gardenSettings = JSON.parse(String(text() || "{}")) }
-      catch (e) { root.gardenSettings = { roots: [] } }
-    }
-  }
-
   Process {
     id: scanProc
     command: ["python3", root.scanBin()]
     onExited: function(code) {
       root.scanHint = code === 0 ? "" : "Scan failed (exit " + code + ")."
       dataFile.reload()
-      settingsFile.reload()
+      if (root.settingsOpen) root.loadSheet()
     }
   }
 
   Process {
-    id: addProc
-    onExited: function(code) {
-      if (code !== 0) {
-        root.scanHint = "That folder was rejected (must be inside your home, not your home directory itself)."
-        return
+    id: settingsProc
+    stdout: SplitParser {
+      onRead: function(line) {
+        root.settingsStdout += line
       }
-      if (rootField) rootField.text = ""
-      root.scanHint = ""
-      root.refresh()
-      if (root.opened && rootField.activeFocus) keyCatcher.forceActiveFocus()
     }
-  }
-
-  Process {
-    id: rmProc
-    onExited: function() { root.refresh() }
+    onStarted: root.settingsStdout = ""
+    onExited: function(code) {
+      var status = code
+      var captured = String(root.settingsStdout || "")
+      Qt.callLater(function() { root.finishSettingsCommand(status, captured) })
+    }
   }
 
   Process {
@@ -357,13 +441,8 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    // KeyboardPanel owns initial item focus and its 75 ms Exclusive prime.
-    // Defer automatic scan work until the shell has released that grab.
     onFocusPrimedChanged: {
-      if (open && focusPrimed) {
-        settingsFile.reload()
-        root.scanIfStale()
-      }
+      if (open && focusPrimed) root.scanIfStale()
     }
     contentWidth: panel.fittedContentWidth(Style.space(680))
     contentHeight: panel.fittedContentHeight(body.implicitHeight, Style.space(620))
@@ -376,6 +455,7 @@ Panel {
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onActivateRequested: root.refresh()
       onMoveRequested: function(dx, dy) {
+        if (root.settingsOpen) return
         if (root.panelView !== "year") {
           if (dx < 0) root.stepView(-1)
           else if (dx > 0) root.stepView(1)
@@ -457,6 +537,16 @@ Panel {
             wrapMode: Text.WordWrap
           }
 
+          Text {
+            visible: root.scanHint !== ""
+            width: parent.width - parent.leftPadding - parent.rightPadding
+            text: root.scanHint
+            color: root.dim
+            wrapMode: Text.WordWrap
+            font.pixelSize: Style.font.caption
+            font.family: root.contentFontFamily
+          }
+
           Row {
             spacing: Style.space(14)
             Text {
@@ -468,7 +558,11 @@ Panel {
               MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: { root.panelView = "year"; root.selectedProject = "" }
+                onClicked: {
+                  root.settingsOpen = false
+                  root.panelView = "year"
+                  root.selectedProject = ""
+                }
               }
             }
             Text {
@@ -480,7 +574,11 @@ Panel {
               MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: { root.panelView = "week"; root.selectedProject = "" }
+                onClicked: {
+                  root.settingsOpen = false
+                  root.panelView = "week"
+                  root.selectedProject = ""
+                }
               }
             }
             Text {
@@ -492,13 +590,29 @@ Panel {
               MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: { root.panelView = "projects"; root.selectedProject = "" }
+                onClicked: {
+                  root.settingsOpen = false
+                  root.panelView = "projects"
+                  root.selectedProject = ""
+                }
+              }
+            }
+            Text {
+              text: "Settings"
+              color: root.settingsOpen ? root.accent : root.dim
+              font.bold: root.settingsOpen
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.settingsOpen = !root.settingsOpen
               }
             }
           }
 
           Text {
-            visible: root.panelView !== "year" && !!root.activityReport
+            visible: root.panelView !== "year" && !root.settingsOpen && !!root.activityReport
             width: parent.width - parent.leftPadding - parent.rightPadding
             text: "Project windows overlap. They are not added into hours on this machine."
             color: root.dim
@@ -509,7 +623,7 @@ Panel {
 
           Column {
             id: weekBlock
-            visible: root.panelView === "week"
+            visible: root.panelView === "week" && !root.settingsOpen
             height: visible ? implicitHeight : 0
             width: parent.width - parent.leftPadding - parent.rightPadding
             spacing: Style.space(8)
@@ -616,7 +730,7 @@ Panel {
 
           Column {
             id: projectBlock
-            visible: root.panelView === "projects"
+            visible: root.panelView === "projects" && !root.settingsOpen
             height: visible ? implicitHeight : 0
             width: parent.width - parent.leftPadding - parent.rightPadding
             spacing: Style.space(8)
@@ -705,7 +819,7 @@ Panel {
           }
 
           Text {
-            visible: root.panelView === "year" && !!(root.snapshot.review && root.snapshot.review.sentence)
+            visible: root.panelView === "year" && !root.settingsOpen && !!(root.snapshot.review && root.snapshot.review.sentence)
             width: parent.width - parent.leftPadding - parent.rightPadding
             text: (root.snapshot.review && root.snapshot.review.sentence) ? root.snapshot.review.sentence : ""
             color: root.dim
@@ -715,7 +829,7 @@ Panel {
           }
 
           Column {
-            visible: root.panelView === "year"
+            visible: root.panelView === "year" && !root.settingsOpen
             height: visible ? implicitHeight : 0
             spacing: Style.space(4)
             width: parent.width - parent.leftPadding - parent.rightPadding
@@ -871,7 +985,7 @@ Panel {
           }
 
           Text {
-            visible: root.panelView === "year" && root.selectedDate !== ""
+            visible: root.panelView === "year" && !root.settingsOpen && root.selectedDate !== ""
             width: parent.width - parent.leftPadding - parent.rightPadding
             color: root.contentForeground
             font.family: root.contentFontFamily
@@ -900,7 +1014,7 @@ Panel {
           }
 
           Text {
-            visible: root.panelView === "year" && root.selectedDate !== ""
+            visible: root.panelView === "year" && !root.settingsOpen && root.selectedDate !== ""
             width: parent.width - parent.leftPadding - parent.rightPadding
             text: "This day, half-hour by half-hour"
             color: root.dim
@@ -909,7 +1023,7 @@ Panel {
           }
 
           Row {
-            visible: root.panelView === "year" && root.selectedDate !== ""
+            visible: root.panelView === "year" && !root.settingsOpen && root.selectedDate !== ""
             height: visible ? implicitHeight : 0
             spacing: 1
             width: parent.width - parent.leftPadding - parent.rightPadding
@@ -933,7 +1047,7 @@ Panel {
           }
 
           Text {
-            visible: root.panelView === "year" && !!(root.selectedDate !== "" && root.selectedDay && root.selectedDay.bySlot)
+            visible: root.panelView === "year" && !root.settingsOpen && !!(root.selectedDate !== "" && root.selectedDay && root.selectedDay.bySlot)
             width: parent.width - parent.leftPadding - parent.rightPadding
             wrapMode: Text.WordWrap
             color: root.dim
@@ -961,120 +1075,280 @@ Panel {
             }
           }
 
-          Text {
-            text: "Watching"
-            color: root.contentForeground
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.bodySmall
-            font.bold: true
-          }
-
-          Text {
-            visible: !(root.gardenSettings.roots || root.snapshot.roots || []).length
+          Column {
+            id: settingsBlock
+            visible: root.settingsOpen
+            height: visible ? implicitHeight : 0
             width: parent.width - parent.leftPadding - parent.rightPadding
-            text: "Nothing is watched. Add a folder below."
-            color: root.dim
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-          }
-
-          Repeater {
-            model: root.gardenSettings.roots || root.snapshot.roots || []
-            Row {
-              required property var modelData
-              spacing: Style.space(8)
-              width: body.width - body.leftPadding - body.rightPadding
-              Text {
-                text: modelData
-                color: root.dim
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.caption
-                elide: Text.ElideMiddle
-                width: parent.width - Style.space(48)
-              }
-              Text {
-                text: "×"
-                color: root.contentForeground
-                font.pixelSize: Style.font.body
-                MouseArea {
-                  anchors.fill: parent
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.removeRoot(modelData)
-                }
-              }
-            }
-          }
-
-          Row {
             spacing: Style.space(8)
-            width: body.width - body.leftPadding - body.rightPadding
-            TextField {
-              id: rootField
-              width: parent.width - Style.space(72)
-              anchors.verticalCenter: parent.verticalCenter
-              placeholderText: "Folder to watch"
-              foreground: root.contentForeground
+
+            Text {
+              visible: (root.sheet.version || "") !== ""
+              text: "Garden " + root.sheet.version
+              color: root.dim
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
-              horizontalPadding: Style.spacing.controlGap
-              verticalPadding: Style.spacing.controlPaddingY
-              activeFocusOnTab: false
-              onAccepted: root.addRoot()
-              Keys.onEscapePressed: root.close()
             }
+
             Text {
-              text: "Add"
+              width: parent.width
+              text: {
+                var _ = root.dataRev
+                return root.scanStatusLine()
+              }
+              wrapMode: Text.WordWrap
+              color: root.dim
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Text {
+              visible: root.snapshot.timerEnabled !== true
+              text: "Enable background scan"
               color: root.accent
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.bodySmall
               font.bold: true
-              anchors.verticalCenter: parent.verticalCenter
               MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.addRoot()
+                onClicked: {
+                  timerProc.command = ["python3", root.scanBin(), "--install-timer"]
+                  timerProc.running = true
+                }
               }
             }
-          }
 
-          Text {
-            visible: root.scanHint !== ""
-            width: parent.width - parent.leftPadding - parent.rightPadding
-            text: root.scanHint
-            color: root.dim
-            wrapMode: Text.WordWrap
-            font.pixelSize: Style.font.caption
-            font.family: root.contentFontFamily
-          }
-
-          Text {
-            width: parent.width - parent.leftPadding - parent.rightPadding
-            text: {
-              var status = snapshot.scanStatus
-              if (status) return status
-              return snapshot.timerEnabled
-                ? "Background scan is on (every 15 min)."
-                : "Background scan is off."
+            Text {
+              text: "Watching"
+              color: root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.bold: true
             }
-            color: root.dim
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-          }
 
-          Text {
-            visible: snapshot.timerEnabled !== true
-            text: "Enable background scan"
-            color: root.accent
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.bodySmall
-            font.bold: true
-            MouseArea {
-              anchors.fill: parent
-              cursorShape: Qt.PointingHandCursor
-              onClicked: {
-                timerProc.command = ["python3", root.scanBin(), "--install-timer"]
-                timerProc.running = true
+            Text {
+              visible: root.sheetReady && !(root.sheet.roots || []).length
+              width: parent.width
+              text: "Nothing is watched. Add a folder below."
+              color: root.dim
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
+            Repeater {
+              model: root.sheet.roots || []
+              Column {
+                required property var modelData
+                width: settingsBlock.width
+                spacing: 2
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  Text {
+                    text: modelData.display ? modelData.display : modelData.stored
+                    color: modelData.ok ? root.dim : root.contentForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    elide: Text.ElideMiddle
+                    width: parent.width - Style.space(48)
+                  }
+                  Text {
+                    text: "×"
+                    color: root.contentForeground
+                    font.pixelSize: Style.font.body
+                    MouseArea {
+                      anchors.fill: parent
+                      cursorShape: Qt.PointingHandCursor
+                      enabled: !settingsProc.running
+                      onClicked: root.removeRoot(modelData.stored)
+                    }
+                  }
+                }
+                Text {
+                  visible: root.rootNote(modelData.token || "") !== ""
+                  width: parent.width
+                  text: root.rootNote(modelData.token || "")
+                  color: root.dim
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                }
+              }
+            }
+
+            Row {
+              spacing: Style.space(8)
+              width: parent.width
+              TextField {
+                id: rootField
+                width: parent.width - Style.space(72)
+                anchors.verticalCenter: parent.verticalCenter
+                placeholderText: "Folder to watch"
+                foreground: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                horizontalPadding: Style.spacing.controlGap
+                verticalPadding: Style.spacing.controlPaddingY
+                activeFocusOnTab: false
+                onAccepted: root.addRoot()
+                Keys.onEscapePressed: root.close()
+              }
+              Text {
+                text: "Add"
+                color: root.accent
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+                anchors.verticalCenter: parent.verticalCenter
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  enabled: !settingsProc.running
+                  onClicked: root.addRoot()
+                }
+              }
+            }
+
+            Text {
+              visible: root.rootNote(root.rootToken) !== ""
+              width: parent.width
+              text: root.rootNote(root.rootToken)
+              color: root.dim
+              wrapMode: Text.WordWrap
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Column {
+              visible: (root.sheet.offers || []).length > 0
+              width: parent.width
+              spacing: Style.space(4)
+              height: visible ? implicitHeight : 0
+              Text {
+                text: "Folders in your home"
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+              }
+              Repeater {
+                model: root.sheet.offers || []
+                Text {
+                  required property var modelData
+                  width: settingsBlock.width
+                  text: modelData.display ? modelData.display : modelData.stored
+                  color: root.accent
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  elide: Text.ElideMiddle
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    enabled: !settingsProc.running
+                    onClicked: root.addStored(modelData.stored)
+                  }
+                }
+              }
+            }
+
+            Text {
+              visible: (root.sheet.hardSkipNote || "") !== ""
+              width: parent.width
+              text: root.sheet.hardSkipNote || ""
+              color: root.dim
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
+            Text {
+              visible: !!(root.sheet.subject && root.sheet.subject.pattern)
+              width: parent.width
+              text: "Ignored commit subjects: " + (root.sheet.subject ? root.sheet.subject.pattern : "")
+              color: root.dim
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
+            Repeater {
+              model: root.sheet.mutes || []
+              Row {
+                required property var modelData
+                width: settingsBlock.width
+                spacing: Style.space(8)
+                Text {
+                  width: parent.width - Style.space(72)
+                  text: {
+                    var hits = modelData.hits || []
+                    var line = modelData.stored || ""
+                    if (hits.length) line += " · " + hits.join(", ")
+                    return line
+                  }
+                  color: root.dim
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                }
+                Text {
+                  text: "Unmute"
+                  color: root.accent
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    enabled: !settingsProc.running
+                    onClicked: root.unmuteStored(modelData.stored)
+                  }
+                }
+              }
+            }
+
+            Text {
+              visible: root.mutePicker || (root.sheet.openRepos || []).length > 0
+              text: "Mute a project"
+              color: root.mutePicker ? root.contentForeground : root.accent
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.bold: true
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.mutePicker = !root.mutePicker
+              }
+            }
+
+            Repeater {
+              model: root.mutePicker ? (root.sheet.openRepos || []) : []
+              Row {
+                required property var modelData
+                width: settingsBlock.width
+                spacing: Style.space(8)
+                Text {
+                  width: parent.width - Style.space(48)
+                  text: modelData
+                  color: root.dim
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  elide: Text.ElideMiddle
+                }
+                Text {
+                  text: "Mute"
+                  color: root.accent
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    enabled: !settingsProc.running
+                    onClicked: root.muteLabel(modelData)
+                  }
+                }
               }
             }
           }

@@ -242,5 +242,18 @@ class SettingsCommandTests(unittest.TestCase):
             self.assertFalse((home / ".local" / "state" / "omarchy" / "garden" / "settings.json").exists())
 
 
+class PanelSettingsTests(unittest.TestCase):
+    def test_panel_quotes_empty_scan_sentences(self):
+        panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")
+        enabled = g.scan_status_text(g.parse_scan_state(None), True)
+        disabled = g.scan_status_text(g.parse_scan_state(None), False)
+        self.assertIn(enabled, panel)
+        self.assertIn(disabled, panel)
+        self.assertIn("activeFocusOnTab: false", panel)
+        self.assertNotIn("every 15 min", panel)
+        self.assertNotIn("FileDialog", panel)
+        self.assertNotIn("FolderDialog", panel)
+
+
 if __name__ == "__main__":
     unittest.main()

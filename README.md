@@ -36,9 +36,9 @@ One themed Nerd Font sprout, same slot as Bluetooth. Hover is the sampled half-h
 
 ## Folders
 
-Default watch: `~/Projects`. Add/remove folders in the panel. `$HOME` is rejected. `~/Documents` is not watched by default (vault backup crons).
+Default watch: `~/Projects`. Open **Settings** on the panel to add or remove a folder, mute a project, and read the Garden version. The field accepts `~/Projects` and `$HOME/Projects`. Your home directory itself is rejected. Settings lists the folders in your home when nothing valid is watched, and when the path you typed is your home. `~/Documents` is not watched by default (vault backup crons).
 
-**A folder does not need to be a git repo.** Nested git repos still count commits.
+**A folder does not need to be a git repo.** Nested git repos still count commits. Build and dependency folders are skipped by the scanner. They are not mutes.
 
 ## What lights a square
 
@@ -47,7 +47,7 @@ Default watch: `~/Projects`. Add/remove folders in the panel. `$HOME` is rejecte
 | File save | Source-ish files under a watched folder (skip `node_modules`, `.git`, venvs, …). Counted from **mtime samples**, not each keystroke. Untracked files in a git repo count if git would not ignore them. |
 | Git commit | Author email matches yours, local time, subject not `vault backup:`. **Pushed commits still count.** |
 
-**Sampled half-hours.** The headline counts half-hours with a file change on this PC. Git-only history lights pale tiles and adds nothing to the headline. The settings line shows the last successful file walk, and whether the timer unit is enabled.
+**Sampled half-hours.** The headline counts half-hours with a file change on this PC. Git-only history lights pale tiles and adds nothing to the headline. Settings shows the last successful file walk, and whether the timer unit is enabled.
 
 Agent token totals are **not** squares and are not shown in the panel.
 
