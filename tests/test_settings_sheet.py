@@ -179,5 +179,68 @@ class SettingsSheetTests(unittest.TestCase):
         self.assertNotIn("scanStatus", custom)
 
 
+class SettingsCommandTests(unittest.TestCase):
+    def _run(self, home: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env["HOME"] = str(home)
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        return subprocess.run(
+            [sys.executable, str(ROOT / "bin" / "garden-scan"), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+            check=False,
+        )
+
+    def test_add_root_subprocess(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            projects = home / "Projects"
+            projects.mkdir()
+            settings_path = home / ".local" / "state" / "omarchy" / "garden" / "settings.json"
+            first = self._run(home, "--add-root", "$HOME/Projects")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertEqual(first.stdout.count("\n"), 1)
+            payload = json.loads(first.stdout)
+            self.assertEqual(payload["result"], "ok")
+            self.assertNotIn("scanStatus", payload)
+            self.assertEqual(payload["hardSkipNote"], NOTE)
+            saved = json.loads(settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(len(saved["roots"]), 1)
+            kept = g.root_decision(saved["roots"][0], home=home)
+            self.assertTrue(kept.ok)
+            self.assertEqual(kept.stored, str(projects.resolve()))
+            second = self._run(home, "--add-root", "$HOME/Projects")
+            self.assertEqual(second.returncode, 0, second.stderr)
+            saved_again = json.loads(settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved_again["roots"], saved["roots"])
+            before = settings_path.read_bytes()
+            stamp = settings_path.stat().st_mtime_ns
+            home_add = self._run(home, "--add-root", "$HOME")
+            self.assertEqual(home_add.returncode, 2, home_add.stderr)
+            self.assertEqual(home_add.stdout.count("\n"), 1)
+            body = json.loads(home_add.stdout)
+            self.assertEqual(body["result"], "home")
+            self.assertEqual(body["token"], "home")
+            self.assertTrue(body["offers"])
+            self.assertEqual(Path(body["offers"][0]["stored"]).name, "Projects")
+            self.assertEqual(settings_path.read_bytes(), before)
+            self.assertEqual(settings_path.stat().st_mtime_ns, stamp)
+            self.assertEqual(json.loads(settings_path.read_text(encoding="utf-8"))["roots"], saved["roots"])
+
+    def test_settings_sheet_does_not_create_settings(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            proc = self._run(home, "--settings-sheet")
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout.count("\n"), 1)
+            payload = json.loads(proc.stdout)
+            self.assertEqual(payload["result"], "ok")
+            self.assertNotIn("scanStatus", payload)
+            self.assertFalse((home / ".local" / "state" / "omarchy" / "garden" / "settings.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
