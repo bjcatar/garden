@@ -800,6 +800,7 @@ Panel {
               Text {
                 required property var modelData
                 width: weekBlock.width
+                textFormat: Text.PlainText
                 text: modelData.line || ""
                 color: root.dim
                 font.family: root.contentFontFamily
@@ -822,6 +823,7 @@ Panel {
               Text {
                 required property var modelData
                 width: weekBlock.width
+                textFormat: Text.PlainText
                 text: modelData.line || ""
                 color: root.dim
                 font.family: root.contentFontFamily
@@ -867,6 +869,7 @@ Panel {
                 spacing: 2
                 Text {
                   width: parent.width
+                  textFormat: Text.PlainText
                   text: projectRow.modelData.name
                   color: root.selectedProject === projectRow.modelData.name ? root.accent : root.contentForeground
                   font.family: root.contentFontFamily
@@ -881,6 +884,7 @@ Panel {
                 }
                 Text {
                   width: parent.width
+                  textFormat: Text.PlainText
                   text: projectRow.modelData.touched || ""
                   color: root.dim
                   font.family: root.contentFontFamily
@@ -897,6 +901,7 @@ Panel {
                     Text {
                       required property var modelData
                       width: projectBlock.width
+                      textFormat: Text.PlainText
                       text: modelData.line || ""
                       color: root.dim
                       font.family: root.contentFontFamily
@@ -909,6 +914,7 @@ Panel {
                     Text {
                       required property var modelData
                       width: projectBlock.width
+                      textFormat: Text.PlainText
                       text: modelData.line || ""
                       color: root.dim
                       font.family: root.contentFontFamily
@@ -1095,6 +1101,7 @@ Panel {
             font.pixelSize: Style.font.bodySmall
             font.bold: true
             wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
             text: {
               if (!root.selectedDate) return ""
               var d = root.selectedDay || {}
@@ -1156,6 +1163,7 @@ Panel {
             color: root.dim
             font.family: root.contentFontFamily
             font.pixelSize: 10
+            textFormat: Text.PlainText
             text: {
               var d = root.selectedDay || {}
               var by = d.bySlot || {}
@@ -1250,6 +1258,7 @@ Panel {
                   width: parent.width
                   spacing: Style.space(8)
                   Text {
+                    textFormat: Text.PlainText
                     text: modelData.display ? modelData.display : modelData.stored
                     color: modelData.ok ? root.dim : root.contentForeground
                     font.family: root.contentFontFamily
@@ -1341,6 +1350,7 @@ Panel {
                 Text {
                   required property var modelData
                   width: settingsBlock.width
+                  textFormat: Text.PlainText
                   text: modelData.display ? modelData.display : modelData.stored
                   color: root.accent
                   font.family: root.contentFontFamily
@@ -1369,6 +1379,7 @@ Panel {
             Text {
               visible: !!(root.sheet.subject && root.sheet.subject.pattern)
               width: parent.width
+              textFormat: Text.PlainText
               text: "Ignored commit subjects: " + (root.sheet.subject ? root.sheet.subject.pattern : "")
               color: root.dim
               font.family: root.contentFontFamily
@@ -1384,6 +1395,7 @@ Panel {
                 spacing: Style.space(8)
                 Text {
                   width: parent.width - Style.space(72)
+                  textFormat: Text.PlainText
                   text: {
                     var hits = modelData.hits || []
                     var line = modelData.stored || ""
@@ -1433,6 +1445,7 @@ Panel {
                 spacing: Style.space(8)
                 Text {
                   width: parent.width - Style.space(48)
+                  textFormat: Text.PlainText
                   text: modelData
                   color: root.dim
                   font.family: root.contentFontFamily
