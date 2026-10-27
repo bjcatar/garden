@@ -1,9 +1,3 @@
-"""Repo and path strings stay literal, and the panel draws them as plain text.
-
-Qt Text defaults to Text.AutoText. A commit subject that looks like an HTML
-image tag can then load a URL. PlainText is the boundary. Python keeps the
-characters so the week note and the panel show the subject as it was written.
-"""
 from __future__ import annotations
 
 import importlib.machinery
@@ -26,8 +20,7 @@ IMG_REPO = '<img src="http://127.0.0.1/garden-repo.png">'
 IMG_PATH = '<img src="http://127.0.0.1/garden-path.png">'
 IMG_DIR = '<img src="http:127.0.0.1">'
 
-# Bindings that carry a repository or filesystem string into a text item.
-_MARKERS = (
+_REPO_OR_PATH_BINDINGS = (
     "modelData.line",
     "modelData.name",
     "modelData.touched",
@@ -244,7 +237,7 @@ def text_binding(item: QmlItem) -> str | None:
 def _untrusted(binding: str | None, prefix: str) -> bool:
     if binding is None:
         return False
-    if any(marker in binding for marker in _MARKERS):
+    if any(marker in binding for marker in _REPO_OR_PATH_BINDINGS):
         return True
     if binding.strip() == "modelData":
         window = prefix[-2000:]
