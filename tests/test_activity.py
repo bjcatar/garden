@@ -609,6 +609,18 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertEqual(touched["slot"], 29)
         self.assertEqual(touched["path"], "src/new.py")
 
+    def test_a_same_slot_commit_keeps_the_file_path(self):
+        events = [
+            file("2026-10-24", 28, "garden", "src/Panel.qml"),
+            commit("2026-10-24", 28, "garden", "abc", "save"),
+        ]
+        out = g.summarize_activity(events, TODAY)
+        touched = out["projects"][0]["lastTouched"]
+        self.assertEqual(touched["slot"], 28)
+        self.assertEqual(touched["path"], "src/Panel.qml")
+        self.assertEqual(out["week"]["projects"][0]["lastTouched"]["path"], "src/Panel.qml")
+        self.assertEqual(out["week"]["spans"][0]["fileLabel"], "src/Panel.qml")
+
     def test_a_commit_with_no_file_span_keeps_a_blank_path(self):
         touched = g.summarize_activity(
             [commit("2026-10-24", 29, "garden", "abc", "save")],
@@ -659,7 +671,7 @@ class YearNoteTests(unittest.TestCase):
         self.assertEqual(g.year_square_note(None), g.YEAR_SQUARE_NOTE)
         self.assertEqual(g.year_square_note({}), g.YEAR_SQUARE_NOTE)
         self.assertIn("half-hour with a file change on this machine", g.YEAR_SQUARE_NOTE)
-        self.assertIn("no sample", g.YEAR_SQUARE_NOTE)
+        self.assertIn("Dim days", g.YEAR_SQUARE_NOTE)
 
     def test_one_sampled_day_still_explains_the_square(self):
         days = {"2026-10-24": {"coverage": "sampled", "observedSlots": 4, "slots": 4}}

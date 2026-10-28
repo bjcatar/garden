@@ -677,7 +677,7 @@ def _attach_also(projects: List[Dict[str, Any]], rows: Sequence[tuple]) -> None:
 
 
 def _touch_path(rows: Sequence[tuple], last: tuple) -> str:
-    """Keep a path a later commit would blank while an earlier span still names it."""
+    """Keep a path a later commit would blank while a span at or before it still names the file."""
     if last[2] == "file":
         return last[6]
     last_key = (last[0], last[1])
@@ -1765,8 +1765,8 @@ def scan_status_text(state: ScanState, timer_enabled: bool) -> str:
 
 
 YEAR_SQUARE_NOTE = (
-    "A square is a half-hour with a file change on this machine. "
-    "Days with no sample stay unmarked."
+    "A filled square is a half-hour with a file change on this machine. "
+    "Dim days were not sampled, or had no file change."
 )
 _EARLY_YEAR_DAYS = 2
 

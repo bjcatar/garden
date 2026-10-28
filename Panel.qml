@@ -206,7 +206,7 @@ Panel {
     if (typeof note === "string") return note
     var days = snapshot && snapshot.days
     if (!days || Object.keys(days).length === 0)
-      return "A square is a half-hour with a file change on this machine. Days with no sample stay unmarked."
+      return "A filled square is a half-hour with a file change on this machine. Dim days were not sampled, or had no file change."
     return ""
   }
   readonly property var selectedDay: (snapshot.days && selectedDate) ? snapshot.days[selectedDate] : null
