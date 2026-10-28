@@ -254,6 +254,28 @@ class PanelSettingsTests(unittest.TestCase):
         self.assertNotIn("FileDialog", panel)
         self.assertNotIn("FolderDialog", panel)
 
+    def test_panel_quotes_the_early_year_sentence(self):
+        panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")
+        sentence = g.year_square_note({})
+        self.assertEqual(sentence, g.YEAR_SQUARE_NOTE)
+        self.assertIn(sentence, panel)
+        self.assertIn("snapshot.yearNote", panel)
+        self.assertIn("id: yearScale", panel)
+        self.assertIn("visible: root.yearNote === \"\"", panel)
+
+    def test_close_hides_before_bar_cleanup(self):
+        panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")
+        close = panel.split("function close()", 1)[1].split("function toggle()", 1)[0]
+        hide = close.find("root.controller.hide()")
+        release = close.find("setCenterHoverRevealSuppressed(false)")
+        self.assertGreater(hide, -1)
+        self.assertLess(hide, release)
+        self.assertIn("Keys.onEscapePressed: root.close()", panel)
+        self.assertIn("onCloseRequested: root.close()", panel)
+        self.assertIn("sequences: [\"Escape\"]", panel)
+        self.assertIn("onActivated: root.close()", panel)
+        self.assertIn("open: root.opened", panel)
+
 
 if __name__ == "__main__":
     unittest.main()
