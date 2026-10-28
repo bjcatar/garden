@@ -461,6 +461,7 @@ def build_heatmap(
         "sources": settings.get("sources"),
         "slotMinutes": settings.get("slotMinutes") or 30,
         "review": g.collect_review(review_rows, today),
+        "yearNote": g.year_square_note(days_out),
         "activity": activity,
         "scanStatus": g.scan_status_text(parsed, enabled),
         "timerEnabled": enabled,

@@ -676,6 +676,22 @@ def _attach_also(projects: List[Dict[str, Any]], rows: Sequence[tuple]) -> None:
             window["also"] = sorted(others)
 
 
+def _touch_path(rows: Sequence[tuple], last: tuple) -> str:
+    """Keep a path a later commit would blank while an earlier span still names it."""
+    if last[2] == "file":
+        return last[6]
+    last_key = (last[0], last[1])
+    kept = ""
+    for span in _week_spans(rows, date.min, date.max):
+        label = span["fileLabel"]
+        if not label:
+            continue
+        end = (date.fromisoformat(span["day"]), span["endSlot"])
+        if end <= last_key:
+            kept = label
+    return kept
+
+
 def _project_payload(name: str, rows: Sequence[tuple], limit_windows: Optional[int]) -> Dict[str, Any]:
     by_day: Dict[date, Dict[int, Set[str]]] = {}
     active_days: Set[date] = set()
@@ -700,7 +716,7 @@ def _project_payload(name: str, rows: Sequence[tuple], limit_windows: Optional[i
             "day": touched[0].isoformat(),
             "slot": touched[1],
             "label": _clock(touched[1]),
-            "path": touched[6] if touched[2] == "file" else "",
+            "path": _touch_path(rows, touched),
         },
         "windows": windows,
         "recentCommits": [_commit_payload(row) for row in _deduped_commits(rows)[:_PROJECT_COMMIT_CAP]],
@@ -1746,6 +1762,35 @@ def scan_status_text(state: ScanState, timer_enabled: bool) -> str:
     pieces.extend(clock_sentences(failed))
     pieces.append(timer)
     return " ".join(pieces)
+
+
+YEAR_SQUARE_NOTE = (
+    "A square is a half-hour with a file change on this machine. "
+    "Days with no sample stay unmarked."
+)
+_EARLY_YEAR_DAYS = 2
+
+
+def year_square_note(days: Mapping[str, Any] | None) -> str:
+    """Year copy until two days have a sampled file change. Empty once they do."""
+    if _observed_file_days(days) < _EARLY_YEAR_DAYS:
+        return YEAR_SQUARE_NOTE
+    return ""
+
+
+def _observed_file_days(days: Mapping[str, Any] | None) -> int:
+    if not isinstance(days, Mapping):
+        return 0
+    found = 0
+    for row in days.values():
+        if not isinstance(row, Mapping):
+            continue
+        observed = row.get("observedSlots")
+        if isinstance(observed, bool) or not isinstance(observed, int):
+            continue
+        if observed > 0:
+            found += 1
+    return found
 
 
 def week_clause(slot_count: int) -> str:
