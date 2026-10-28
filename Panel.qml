@@ -200,6 +200,15 @@ Panel {
   }
   readonly property int totalSlots: snapshot.totalSlots || 0
   readonly property int activeDays: snapshot.activeDays || 0
+  readonly property string yearNote: {
+    var _ = dataRev
+    var note = snapshot ? snapshot.yearNote : undefined
+    if (typeof note === "string") return note
+    var days = snapshot && snapshot.days
+    if (!days || Object.keys(days).length === 0)
+      return "A filled square is a half-hour with a file change on this machine. Dim days were not sampled, or had no file change."
+    return ""
+  }
   readonly property var selectedDay: (snapshot.days && selectedDate) ? snapshot.days[selectedDate] : null
 
   readonly property int cell: 11
@@ -469,6 +478,13 @@ Panel {
     }
     contentWidth: panel.fittedContentWidth(Style.space(680))
     contentHeight: panel.fittedContentHeight(body.implicitHeight, Style.space(620))
+
+    Shortcut {
+      sequences: ["Escape"]
+      enabled: root.opened
+      context: Qt.WindowShortcut
+      onActivated: root.close()
+    }
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -943,6 +959,18 @@ Panel {
             spacing: Style.space(4)
             width: parent.width - parent.leftPadding - parent.rightPadding
 
+            Text {
+              id: yearIntro
+              width: parent.width
+              visible: root.yearNote !== ""
+              height: visible ? implicitHeight : 0
+              text: root.yearNote
+              color: root.dim
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
             Row {
               spacing: 0
               width: parent.width
@@ -1072,18 +1100,24 @@ Panel {
                 font.family: root.contentFontFamily
               }
               Item { width: 8; height: 1 }
-              Text { text: "Less"; color: root.dim; font.pixelSize: 10; font.family: root.contentFontFamily }
-              Repeater {
-                model: 5
-                Rectangle {
-                  required property int index
-                  width: root.cell
-                  height: root.cell
-                  radius: 2
-                  color: root.colorForSlots(index === 0 ? 0 : (index === 1 ? 1 : (index === 2 ? 3 : (index === 3 ? 6 : 10))), "observed")
+              Row {
+                id: yearScale
+                visible: root.yearNote === ""
+                height: visible ? implicitHeight : 0
+                spacing: 8
+                Text { text: "Less"; color: root.dim; font.pixelSize: 10; font.family: root.contentFontFamily }
+                Repeater {
+                  model: 5
+                  Rectangle {
+                    required property int index
+                    width: root.cell
+                    height: root.cell
+                    radius: 2
+                    color: root.colorForSlots(index === 0 ? 0 : (index === 1 ? 1 : (index === 2 ? 3 : (index === 3 ? 6 : 10))), "observed")
+                  }
                 }
+                Text { text: "More"; color: root.dim; font.pixelSize: 10; font.family: root.contentFontFamily }
               }
-              Text { text: "More"; color: root.dim; font.pixelSize: 10; font.family: root.contentFontFamily }
               Text {
                 text: "now →"
                 color: root.dim

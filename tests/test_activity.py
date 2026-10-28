@@ -579,18 +579,55 @@ class ActivitySummaryTests(unittest.TestCase):
         self.assertEqual(out["week"]["machineHours"], 1.0)
         self.assertNotIn("fileLabel", out["projects"][0]["windows"][0])
 
-    def test_a_later_commit_blanks_the_touch_path(self):
+    def test_a_later_commit_keeps_the_touch_path(self):
         events = [
             file("2026-10-24", 28, "garden", "src/Panel.qml"),
             commit("2026-10-24", 29, "garden", "abc", "save"),
         ]
         out = g.summarize_activity(events, TODAY)
         spans = out["week"]["spans"]
-        self.assertEqual(out["week"]["projects"][0]["lastTouched"]["path"], "")
-        self.assertEqual(out["projects"][0]["lastTouched"]["path"], "")
+        touched = out["projects"][0]["lastTouched"]
+        self.assertEqual(touched["day"], "2026-10-24")
+        self.assertEqual(touched["slot"], 29)
+        self.assertEqual(touched["path"], "src/Panel.qml")
+        self.assertEqual(out["week"]["projects"][0]["lastTouched"]["path"], "src/Panel.qml")
+        self.assertEqual(
+            out["projects"][0]["touched"],
+            "Last touched 2026-10-24 14:30 · src/Panel.qml · 1 day active",
+        )
         self.assertEqual(spans[0]["fileLabel"], "src/Panel.qml")
         self.assertEqual(spans[1]["fileLabel"], "")
         self.assertTrue(spans[1]["line"].endswith("commit only"))
+
+    def test_a_later_commit_keeps_the_span_winner_not_an_older_path(self):
+        events = [
+            file("2026-10-24", 28, "garden", "src/old.py"),
+            file("2026-10-24", 28, "garden", "src/new.py"),
+            commit("2026-10-24", 29, "garden", "abc", "save"),
+        ]
+        touched = g.summarize_activity(events, TODAY)["projects"][0]["lastTouched"]
+        self.assertEqual(touched["slot"], 29)
+        self.assertEqual(touched["path"], "src/new.py")
+
+    def test_a_same_slot_commit_keeps_the_file_path(self):
+        events = [
+            file("2026-10-24", 28, "garden", "src/Panel.qml"),
+            commit("2026-10-24", 28, "garden", "abc", "save"),
+        ]
+        out = g.summarize_activity(events, TODAY)
+        touched = out["projects"][0]["lastTouched"]
+        self.assertEqual(touched["slot"], 28)
+        self.assertEqual(touched["path"], "src/Panel.qml")
+        self.assertEqual(out["week"]["projects"][0]["lastTouched"]["path"], "src/Panel.qml")
+        self.assertEqual(out["week"]["spans"][0]["fileLabel"], "src/Panel.qml")
+
+    def test_a_commit_with_no_file_span_keeps_a_blank_path(self):
+        touched = g.summarize_activity(
+            [commit("2026-10-24", 29, "garden", "abc", "save")],
+            TODAY,
+        )["projects"][0]["lastTouched"]
+        self.assertEqual(touched["slot"], 29)
+        self.assertEqual(touched["path"], "")
 
     def test_a_backslash_path_is_stored_with_slashes(self):
         out = g.summarize_activity(
@@ -627,6 +664,39 @@ class ActivitySummaryTests(unittest.TestCase):
         for day in days:
             self.assertNotIn("path", day)
             self.assertNotIn("fileLabel", day)
+
+
+class YearNoteTests(unittest.TestCase):
+    def test_no_sample_explains_the_square(self):
+        self.assertEqual(g.year_square_note(None), g.YEAR_SQUARE_NOTE)
+        self.assertEqual(g.year_square_note({}), g.YEAR_SQUARE_NOTE)
+        self.assertIn("half-hour with a file change on this machine", g.YEAR_SQUARE_NOTE)
+        self.assertIn("Dim days", g.YEAR_SQUARE_NOTE)
+
+    def test_one_sampled_day_still_explains_the_square(self):
+        days = {"2026-10-24": {"coverage": "sampled", "observedSlots": 4, "slots": 4}}
+        self.assertEqual(g.year_square_note(days), g.YEAR_SQUARE_NOTE)
+
+    def test_git_only_and_unmarked_days_stay_early(self):
+        days = {
+            "2026-10-23": {"coverage": "unknown", "observedSlots": 0, "slots": 0},
+            "2026-10-24": {"coverage": "git-history-only", "observedSlots": 0, "slots": 3},
+        }
+        self.assertEqual(g.year_square_note(days), g.YEAR_SQUARE_NOTE)
+
+    def test_two_sampled_days_drop_the_year_note(self):
+        days = {
+            "2026-10-23": {"coverage": "sampled", "observedSlots": 1},
+            "2026-10-24": {"coverage": "sampled", "observedSlots": 2},
+        }
+        self.assertEqual(g.year_square_note(days), "")
+
+    def test_a_bool_observed_count_does_not_count_as_a_day(self):
+        days = {
+            "2026-10-23": {"observedSlots": True},
+            "2026-10-24": {"observedSlots": True},
+        }
+        self.assertEqual(g.year_square_note(days), g.YEAR_SQUARE_NOTE)
 
 
 def load_scan():
@@ -667,6 +737,8 @@ class HeatmapActivityTests(unittest.TestCase):
         self.assertIn("1 project", hint)
         self.assertNotIn("recent commit", hint)
         self.assertNotIn(snap["activity"]["week"]["headline"], hint)
+        self.assertEqual(snap["yearNote"], g.year_square_note(snap["days"]))
+        self.assertEqual(snap["yearNote"], g.YEAR_SQUARE_NOTE)
         self.assertNotIn("0.5", hint)
 
 
