@@ -275,6 +275,11 @@ class PanelSettingsTests(unittest.TestCase):
         self.assertIn("sequences: [\"Escape\"]", panel)
         self.assertIn("onActivated: root.close()", panel)
         self.assertIn("open: root.opened", panel)
+        self.assertIn("data: Shortcut {", panel)
+        keyboard = panel.split("KeyboardPanel {", 1)[1]
+        shortcut_at = keyboard.find("Shortcut {")
+        self.assertEqual(keyboard.count("Shortcut {"), 1)
+        self.assertEqual(keyboard[shortcut_at - 6:shortcut_at], "data: ")
 
 
 if __name__ == "__main__":

@@ -478,8 +478,8 @@ Panel {
     }
     contentWidth: panel.fittedContentWidth(Style.space(680))
     contentHeight: panel.fittedContentHeight(body.implicitHeight, Style.space(620))
-
-    Shortcut {
+    // contentItem only accepts Items. data is the window's object list.
+    data: Shortcut {
       sequences: ["Escape"]
       enabled: root.opened
       context: Qt.WindowShortcut
