@@ -4,6 +4,8 @@ A private year of **coding on this Omarchy machine**.
 
 Not GitHub.com. Not the Agents token meter. A square is a **half-hour with a file change** in a folder you chose, or a git commit **you** authored (pale tile if git-only). Six commits without a save still add nothing to the headline. A blank day is sampled only when a successful file walk covered that day. Until then, the day stays unmarked.
 
+Apple Silicon / arm64 (aarch64) is supported: pure Python and QML, no native binaries.
+
 ## Install
 
 ```bash
